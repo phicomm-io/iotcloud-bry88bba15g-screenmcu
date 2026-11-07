@@ -1,0 +1,26 @@
+name: Screen host and preview contracts
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  screen:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: lvgl/lvgl
+          ref: 74d0a816a440eea53e030c4f1af842a94f7ce3d3
+          path: .deps/lvgl
+      - uses: actions/checkout@v4
+        with:
+          repository: DaveGamble/cJSON
+          ref: v1.7.19
+          path: .deps/cjson
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: cmake -S . -B build -DLVGL_DIR="$PWD/.deps/lvgl" -DCJSON_DIR="$PWD/.deps/cjson" -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j4
+      - run: ctest --test-dir build --output-on-failure
+      - run: node --test tests/ui_preview_model.mjs
