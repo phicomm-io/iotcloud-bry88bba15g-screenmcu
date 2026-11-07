@@ -151,28 +151,10 @@ static void guard_reset(void *context) {
   board_delay(30);
   NVIC_SystemReset();
 }
-static bool supported_boot(void) {
-  /* The recovered factory loop has a fixed copy/erase contract. Do not use
-   * it on an unreviewed bootloader, even through a direct ESP command. */
-  static const uint8_t expected[16] = {
-      0x39, 0x9e, 0x3c, 0x7b, 0xd3, 0x2e, 0x84, 0x68,
-      0xdc, 0x6a, 0x10, 0x9c, 0x7c, 0x8e, 0x08, 0x42};
-  screen_md5 hash;
-  uint8_t bytes[256], digest[16];
-  screen_md5_init(&hash);
-  for (uint32_t at = 0; at < SCREEN_BOOT_BYTES; at += sizeof(bytes)) {
-    if (!board_boot_read(NULL, at, bytes, sizeof(bytes)))
-      return false;
-    screen_md5_update(&hash, bytes, sizeof(bytes));
-    board_watchdog_feed();
-  }
-  screen_md5_final(&hash, digest);
-  return !memcmp(digest, expected, sizeof(digest));
-}
 static bool guard_install(void *context) {
   (void)context;
   if (normal_ready) screen_module_inhibit(&runtime.module, true);
-  bool ok = maintenance.staged && supported_boot() &&
+  bool ok = maintenance.staged &&
             screen_boot_commit(&boot_control, &maintenance.update);
   /* A lost reply must not leave a running application permanently inhibited. */
   if (normal_ready) screen_module_inhibit(&runtime.module, wallpaper.active || font_bank.active);

@@ -1,5 +1,14 @@
 # 2026-11-06 维护锁存误判排查与恢复
 
+当前策略说明：以下是 2026-11-06 的历史测试记录，所用版本保留引导摘要及备份门控。
+后续应用已取消引导 MD5 白名单；新 ESP32／脚本取消强制备份、原厂版本白名单和
+首装恢复镜像限制，原厂引导区仍不改写。见 [当前引导说明](BOOTLOADER-20261105.md)。
+
+Current policy: this page records the earlier tests and their original gates.
+The newer application removes the boot MD5 allowlist; its paired ESP32/tool
+makes backup optional and permits complete applications directly on stock MCU
+firmware. The existing boot region remains unchanged.
+
 设备管理页报告没有传感器数据。连接时 ESP32 仍在线，屏幕 MCU 报告
 `fault_recovery`，没有启动显示和传感器业务。连续 7 次采样中 MCU 会话不变，
 UART 帧数持续增加，因此这段观察未发现反复复位。继承的 WDT CR、RSTVAL

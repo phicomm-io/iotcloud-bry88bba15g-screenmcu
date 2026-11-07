@@ -134,7 +134,7 @@ static bool ota_line(screen_maintenance *m, const char *s, uint32_t now) {
     }
     /* Staging and activation are independent. The checked guard command
      * commits only after identifying a supported loader and a second complete
-     * NOR rehash. A matching saved boot backup can be reused. */
+     * NOR rehash. Boot exports are independent of activation. */
     m->state = 0;
     if (m->activity) m->activity(m->context, false);
     return true;

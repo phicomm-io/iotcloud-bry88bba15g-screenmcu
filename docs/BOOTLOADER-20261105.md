@@ -27,13 +27,15 @@ ARM 跟踪只记录 IAP 调用，不模拟 ROM 对越界地址的行为，不能
 `[0x7ea000,0x7ec000)` 的写入源。历史完整 NOR 备份中，应用以后的
 `[0x7e7000,0x7fe000)` 全为 FF；本轮已知写入限定在应用暂存和安装标记块。
 
-社区安装额外检查：重新计算应用 NOR MD5；逐块确认上述整个尾区为 FF；
-确认内部引导 MD5 与本板已分析版本一致，然后才允许写 A1。未知尾区不会被自动擦除。
-配置页没有被擦除，FF 不会清除其中已有的位。安装脚本校验两份备份和引导 SHA-256。
-2026-11-06 起，`--reuse-boot-backup` 可复用跨应用会话的已验证备份，不伪造原会话。
-MCU 安装回调仍重新计算当前引导 MD5，校验应用和复制尾区；移除了“本次开机必须
-先导出 80 KiB”的重复要求。早期已安装的 MCU 仍需完成一次连续导出才能迁移。
-应用重启后回报实际内部应用 MD5；需要时仍可只读导出引导区。
+社区安装额外检查：重新计算应用 NOR MD5，逐块确认整个复制尾区为 FF，
+通过后才允许写 A1 并回读。未知尾区不会被自动擦除。配置页没有被擦除，
+FF 不会清除其中已有的位。引导 MD5／SHA-256 不再作为白名单，双读备份是可选操作。
+配套新 ESP32 与脚本允许直接发送完整 MCU 应用，不要求原厂版本或恢复镜像。
+已安装的旧 MCU 仍保留其原有检查，更新时需满足该旧版本的要求。
+
+原厂串口安装依赖现有引导的复制协议，其他引导的搬运范围需要核对。
+本板原件的上述越界写请求事实不变；此修改不改写引导区。应用重启后回报实际
+内部应用 MD5；需要时仍可只读导出前 80 KiB。
 
 ## 复位时的 SRAM 初始化
 
@@ -65,11 +67,11 @@ Two identical 80 KiB exports identify this board's bootloader. Its A1 erase loop
 preserves the configuration pages, but its copy loop issues 516096 bytes of IAP
 writes, exceeding both the application and the documented 512 KiB Flash range.
 The ARM trace records calls; it does not emulate out-of-range ROM behavior.
-Community activation requires this exact bootloader, a verified application,
-an entirely erased NOR copy tail. Since 2026-11-06, verified matching backups
-can be reused across application sessions using `--reuse-boot-backup`; the MCU
-still hashes the live bootloader locally before each activation. Older installed
-MCUs need one contiguous export to migrate past their original export gate.
+Community activation checks the staged application and erased copy tail. Boot
+backups are optional; the live boot MD5 and stock-version allowlists have been
+removed. The paired new ESP32/tool can send a complete application directly to
+stock firmware. Already installed older MCUs retain their previous gates until
+updated. UART installation still depends on the existing factory copy contract.
 Unknown tail contents are rejected without erasing them. Startup reports the
 actual application digest. Read-only boot export remains available for explicit
 checks and recovery. No bootloader, protection or SWD pin configuration is modified.

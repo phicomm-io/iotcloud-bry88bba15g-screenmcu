@@ -1,8 +1,8 @@
 # 启动维护窗口、WDT 和引导区读出
 
-2026-11-05 后续状态：最小维护应用已通过原厂 UART OTA 在板启动，两份 80 KiB
-引导备份一致。安装改用 v3 门控：本板引导摘要、当前会话的完整导出、NOR 应用
-回读和原厂复制尾区检查。实际进度见 [烧录工作流](FLASH-TEST-20261105.md)，
+最小维护应用已通过原厂 UART OTA 在板启动，两份 80 KiB 引导备份一致。
+当前安装检查 NOR 应用摘要、回读和原厂复制尾区，不再要求引导备份、
+引导 MD5 白名单或首装恢复镜像。原厂引导区不改写。实际进度见 [烧录工作流](FLASH-TEST-20261105.md)，
 引导搬运范围见 [本板引导分析](BOOTLOADER-20261105.md)。
 
 ## 原厂 WDT 证据
@@ -145,9 +145,10 @@ persist the complete 30-second window. Manual hold takes priority; fault mode
 never resumes automatically, and active resource transfers defer the request.
 The MCU retains its full window for older ESP32 applications. The factory
 bootloader and its power-on key gate are unchanged.
-安装复用已验证的两份一致引导备份；MCU 每次仍在本地复核引导 MD5、暂存镜像
-全量 MD5 和 NOR 尾区全 FF。仅在这些条件通过后写 A1、回读，再复位；不直接擦写
-内部 Flash。早期社区版本要求同会话连续完整导出 81920 B，迁移后不再重复导出。
+安装前 MCU 复核暂存镜像全量 MD5 和 NOR 尾区全 FF，再写 A1、回读并复位，
+由原厂引导复制应用。引导备份和引导 MD5 不参与安装门控。早期已安装的 MCU
+仍执行其原有检查，需满足旧条件才能迁移到此版本；新的 ESP32 或脚本不能取消旧
+MCU 内部的检查。原厂引导的搬运范围见分析文档；兼容性提示保留在文档中。
 
 配套 ESP 提供已鉴权的 MessagePack 命令及双遍备份脚本，见其
 `BRY88BBA15G/SERVICES.md`。备份必须得到两次完整一致的 81920 字节文件；
@@ -170,11 +171,11 @@ but preserves its clock-source selection. Community startup records inherited
 registers, safely reconfigures WDT, and provides a 30-second SRAM-only UART
 maintenance window before display/sensor startup. Resume immediately ends the remaining normal startup window or releases a hold; active OTA and forced fault recovery reject it. The web UI exposes both controls under Screen → Resources & OTA. A separate recovery-only build
 and read-only 80 KiB boot export are available. The recovery-only application has
-booted on this board and produced two identical loader backups. Version 3 gates
-activation on the live reviewed bootloader digest, a verified NOR application
-and an erased copy tail. Verified matching backups can be reused across
-application resets; early versions still need one complete current-session
-export before migration. Startup reports the actual
+booted on this board and produced two identical loader backups. Activation
+checks the NOR application and erased copy tail; boot backups and boot-digest
+allowlists are optional or removed. The paired new ESP32/tool can directly send
+a complete application to stock firmware. An already installed older MCU still
+enforces its own gates until replaced; the new tool cannot bypass those checks. Startup reports the actual
 internal application MD5. Interrupted physical installation is not yet tested.
 Normal application entry now clears the recovery latch: the previous version
 marked healthy execution as a fault and could strand a retained-SRAM reset in

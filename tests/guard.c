@@ -120,8 +120,8 @@ int main(void) {
   assert(!guard_receive(&g, wire, n - 2, false) && resets == 1);
   guard_init(&g, 0x87654321, 0, true);
   request(&g, 1, GUARD_RESUME, 0, 0, false, GUARD_UNSUPPORTED, NULL);
-  /* A new session reuses the host's backup. The installation callback must
-   * still validate the live bootloader, staged image and NOR copy tail. */
+  /* Installation needs no boot export, including in a new session. The
+   * callback still validates the staged image and NOR copy tail. */
   assert(!g.exported);
   install_fail = true;
   request(&g, 2, GUARD_INSTALL, 0, 0, false, GUARD_IO, NULL);

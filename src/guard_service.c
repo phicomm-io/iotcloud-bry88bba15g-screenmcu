@@ -74,8 +74,8 @@ bool guard_receive(screen_guard *g, const char *line, size_t size, bool ota) {
           reply[2] = GUARD_UNSUPPORTED;
         break;
       case GUARD_INSTALL:
-        /* Installation validates the current bootloader locally in install().
-         * A read-only backup remains reusable across application resets. */
+        /* Installation rechecks the staged application and factory-copy tail.
+         * Boot exports are optional and never gate activation. */
         if (!g->install || !g->restart)
           reply[2] = GUARD_UNSUPPORTED;
         else if (!g->install(g->context))
