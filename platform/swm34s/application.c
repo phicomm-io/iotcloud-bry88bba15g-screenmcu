@@ -650,11 +650,6 @@ void screen_start(void) {
   stage(STAGE_RTC);
   rtc_start();
   startup_checkpoint();
-  stage(STAGE_SENSORS);
-  board_sensor_init();
-  board_sht_command(0x30a2);
-  board_sensor_checkpoint(20);
-  startup_checkpoint();
   screen_font_resources = (screen_resources){.read=board_nor_read,
       .now=resource_now,.service=resource_service,.cache=resource_cache,
       .capacity=sizeof(resource_cache)};
@@ -683,6 +678,19 @@ void screen_start(void) {
   board_display();
   panel_ready = true;
   display_diagnostics.enabled=true;
+  startup_checkpoint();
+  /* Finish NOR reads and font validation before enabling sensor UARTs or
+   * raising AM1008L SET. The loader services recovery UART and the watchdog;
+   * absent/invalid fonts settle to the built-in font before sensors start. */
+  resources_load(&screen_font_resources);
+  while (maintenance.state || guard.held) {
+    pump();
+    board_watchdog_feed();
+  }
+  stage(STAGE_SENSORS);
+  board_sensor_init();
+  board_sht_command(0x30a2);
+  board_sensor_checkpoint(20);
   startup_checkpoint();
   screen_module_init(&runtime.module, NULL, board_module_write, board_module_read);
   normal_ready = true;
