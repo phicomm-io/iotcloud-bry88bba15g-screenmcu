@@ -25,7 +25,8 @@ static bool erase_nor(void *c,uint32_t a,size_t n) {
  (void)c;assert(!(a&4095)&&n==4096&&a>=WALLPAPER_BASE&&a+n<=WALLPAPER_BASE+sizeof(nor));memset(nor+a-WALLPAPER_BASE,255,n);return true;
 }
 static uint32_t now(void *c) {(void)c;return clock_ms;}
-static void activity(void *c,bool active){(void)c;off=active;}
+/* The board combines the callback with the resource owner's active state. */
+static void activity(void *c,bool active){off=active||(c&&((screen_wallpaper *)c)->active);}
 static void service(void *c) {
  if(!reenter)return;
  screen_wallpaper *w=c;
@@ -42,6 +43,7 @@ static void settled(screen_wallpaper *w) {
  assert(!"Wallpaper did not settle");
 }
 static void begin(screen_wallpaper *w) {
+ w->context=w;
  uint8_t p[44]={SCREEN_MSG_WALLPAPER,1,WP_BEGIN},reply[20];memcpy(p+12,header,32);
  assert(wallpaper_receive(w,p,sizeof(p),reply)&&!reply[2]&&off&&reply[3]==WALLPAPER_PREPARING);
  for(unsigned i=0;w->preparing&&i<600;i++)wallpaper_poll(w);

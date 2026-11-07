@@ -154,7 +154,10 @@ static void guard_reset(void *context) {
 static bool guard_install(void *context) {
   (void)context;
   if (normal_ready) screen_module_inhibit(&runtime.module, true);
+  /* Installation may be requested while the diagnostic startup is held,
+   * before the normal path acknowledges the preceding factory copy. */
   bool ok = maintenance.staged &&
+            screen_boot_ack(&boot_control) &&
             screen_boot_commit(&boot_control, &maintenance.update);
   /* A lost reply must not leave a running application permanently inhibited. */
   if (normal_ready) screen_module_inhibit(&runtime.module, wallpaper.active || font_bank.active);
@@ -589,17 +592,13 @@ void screen_start(void) {
   guard.reset = guard_reset;
   guard.install = guard_install;
   guard.restart = guard_restart;
+  guard.nor_mode = board_nor_mode;
   guard_init(&guard, board_nonce(NULL), board_ms, forced);
   /* Hold the original power latch throughout the UART recovery window. No
    * LCD, SDRAM, sensor or factory-business initialization has run yet. */
   GPIO_SetBit(GPIOM, 7);
   stage(STAGE_WINDOW);
   pump();
-  if (!screen_boot_ack(&boot_control)) {
-    /* NOR failure must not turn optional storage into a boot dependency.
-     * Install still requires a fresh, fully verified NOR/flag transaction. */
-    recovery_reason = 5;
-  }
   screen_md5 image_hash;
   uint8_t image_digest[16];
   screen_md5_init(&image_hash);
@@ -618,6 +617,9 @@ void screen_start(void) {
     pump();
     board_watchdog_feed();
   }
+  /* Let the ESP select a diagnostic bus before the first NOR access. */
+  if (!screen_boot_ack(&boot_control))
+    recovery_reason = 5;
   guard.normal = true;
   /* Only an actual exception or explicit recovery request sets this latch.
    * Marking every normal entry as a fault strands healthy resets when SRAM

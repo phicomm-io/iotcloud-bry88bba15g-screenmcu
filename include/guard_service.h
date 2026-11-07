@@ -9,6 +9,7 @@ typedef struct {
   void (*reset)(void *);
   bool (*install)(void *);
   void (*restart)(void *);
+  bool (*nor_mode)(void *, unsigned);
 } screen_guard;
 void guard_init(screen_guard *, uint32_t session, uint32_t now, bool forced);
 bool guard_waiting(const screen_guard *, uint32_t now, bool ota);

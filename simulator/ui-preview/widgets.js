@@ -12,12 +12,12 @@ export function widgetMarkup(widget, context) {
   const title = text => `<div class="widget-label">${esc(text)}</div>`;
   if (widget.type === 'clock') {
     const date = new Date(state.now);
-    return `<div class="widget-clock"><div class="widget-time">${timeLabel(state.now)}</div><div class="widget-date">${date.getUTCMonth() + 1}月${date.getUTCDate()}日 · 周${DAY_LABELS[date.getUTCDay()]}</div></div>`;
+    return `<div class="widget-clock${widget.h === 1 ? ' compact-clock' : ''}"><div class="widget-time">${timeLabel(state.now)}</div><div class="widget-date">${date.getUTCMonth() + 1}月${date.getUTCDate()}日 · 周${DAY_LABELS[date.getUTCDay()]}</div></div>`;
   }
   if (widget.type === 'metric') {
     const binding = BINDINGS[widget.binding], value = v[widget.binding] || '--';
     const color = ['co2', 'pm', 'tvoc'].includes(widget.binding) ? state.dataState === 'extreme' ? 'danger' : 'accent' : '';
-    const row = wide && widget.h < 4;
+    const row = widget.w > widget.h;
     const scale = row ? 1 : Math.min(rect.width / baseMetric.width, rect.height / baseMetric.height);
     return `<div class="metric-content${row ? ' metric-row' : ''}${row && widget.h === 1 ? ' metric-slim' : ''}" style="--metric-scale:${scale.toFixed(4)}"><div class="metric-heading">${title(widget.title || binding.title)}${binding.unit ? `<span class="metric-unit">${binding.unit}</span>` : ''}</div><div class="metric-value ${color}" data-fit-readout>${esc(value)}</div></div>`;
   }
@@ -38,6 +38,14 @@ export function widgetMarkup(widget, context) {
   }
   if (widget.type === 'weather') {
     const missing = state.dataState === 'missing', temperature = missing ? '--' : state.dataState === 'extreme' ? '-12°' : '26°';
+    if (wide && widget.h <= 2) {
+      const w = rect.width - 24, h = rect.height - 24;
+      const part = (cls, text, x, y, width, height, size, align = 'left') => `<span class="${cls}" style="left:${x}px;top:${y}px;width:${width}px;height:${height}px;font-size:${size}px;text-align:${align}">${text}</span>`;
+      const location = esc(widget.title === '天气' ? '广州' : widget.title), condition = missing ? '--' : '晴间多云';
+      if (widget.h === 1) return `<div class="compact-weather">${part('widget-label', location, 0, 4, 130, 36, 28)}${part('weather-condition', condition, 0, 56, 130, 36, 24)}${part('weather-icon', icons.partly, 142, (h - 64) / 2, 64, 64, 0)}${part('weather-temperature', temperature, 220, (h - 84) / 2, w - 220, 84, 72, 'right')}</div>`;
+      const summary = ['27°', '62%', '2.4'].map((value, i) => part('metric-unit', ['体感', '湿度', '风速 m/s'][i], Math.floor(i * w / 3), 148, Math.floor(w / 3), 32, 24, 'center') + part('weather-temperature', missing ? '--' : value, Math.floor(i * w / 3), 180, Math.floor(w / 3), 40, 32, 'center')).join('');
+      return `<div class="compact-weather">${part('widget-label', location, 0, 0, w, 40, 32)}${part('weather-icon', icons.partly, 0, 56, 88, 88, 0)}${part('weather-temperature', temperature, 108, 48, 150, 96, 80)}${part('weather-condition', condition, 270, 60, w - 270, 72, 28)}${summary}</div>`;
+    }
     if (full) return `${title(widget.title === '天气' ? '广州' : widget.title)}<div class="widget-weather-full"><div class="weather-icon">${icons.partly}</div><div class="weather-temperature">${temperature}</div><p class="weather-condition">${missing ? '暂无天气' : '晴间多云'}</p></div><div class="weather-summary"><div><span>体感</span>${missing ? '--' : '27°'}</div><div><span>湿度</span>${missing ? '--' : '62%'}</div><div><span>风速 m/s</span>${missing ? '--' : '2.4'}</div></div><div class="weather-days"><div class="weather-day"><span>明天</span>${icons.sun}<span>${missing ? '--' : '23 / 28°'}</span></div><div class="weather-day"><span>周日</span>${icons.cloud}<span>${missing ? '--' : '21 / 25°'}</span></div></div>`;
     return `<div class="widget-weather"><div class="widget-weather-label">${title(widget.title === '天气' ? '广州' : widget.title)}${icons.partly}</div><div class="metric-value">${temperature}</div><div class="widget-condition">${missing ? '暂无天气' : '晴间多云'}</div>${tall ? '<div class="widget-weather-extra">明天<br>23 / 28°</div>' : ''}</div>`;
   }

@@ -279,6 +279,14 @@ dialog dd { margin: 0; }
 .widget-date { color: var(--screen-muted); font-size: 32px; line-height: 1.2; text-align: center; margin-top: 8px; white-space: nowrap; }
 .ui-widget.widget-clock:not(.widget-wide) .widget-time { font-size: 72px; letter-spacing: -3px; }
 .ui-widget.widget-clock:not(.widget-wide) .widget-date { font-size: 28px; white-space: normal; }
+.ui-widget:has(.compact-clock) { padding: 12px 0; }
+.ui-widget:has(.compact-weather) { padding: 12px; }
+.compact-clock { width: 100%; display: grid; grid-template-columns: 60% 1fr; align-items: center; gap: 12px; }
+.compact-clock .widget-time { font-size: 72px; letter-spacing: -2px; }
+.compact-clock .widget-date { font-size: 24px; margin: 0; white-space: normal; }
+.compact-weather { position: absolute; inset: 12px; overflow: hidden; }
+.compact-weather > span { position: absolute; display: block; overflow: hidden; line-height: 1.12; }
+.compact-weather .weather-icon svg { width: 100%; height: 100%; }
 .ui-widget.widget-metric, .ui-widget.widget-chart:has(.chart-strip) { padding: 0; }
 .metric-content { height: 100%; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: calc(10px * var(--metric-scale)); }
 .metric-heading { display: flex; align-items: baseline; gap: calc(6px * var(--metric-scale)); min-width: 0; }
@@ -288,6 +296,7 @@ dialog dd { margin: 0; }
 .metric-row { display: grid; grid-template-columns: minmax(0, 44fr) minmax(0, 56fr); column-gap: 12px; align-items: center; }
 .metric-row .metric-heading { flex-direction: column; align-items: flex-start; gap: 6px; align-self: start; }
 .metric-row .widget-label { width: 100%; }
+.metric-row .metric-unit { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metric-row .metric-value { min-width: 0; font-size: 144px; line-height: 1; margin: 0; text-align: right; }
 .metric-slim .metric-value { font-size: 80px; line-height: 1.1; }
 .widget-text-body { font-size: 32px; line-height: 1.5; margin-top: 16px; white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }

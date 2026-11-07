@@ -37,7 +37,9 @@ export function defaultLayouts() {
     : [item('external-main', 'metric', 0, 0, 4, 6, { binding: 'power', title: '当前功率' })] }));
 }
 export function minimumHeight(widget) {
-  return widget.type === 'metric' && widget.w < 4 ? 2 : WIDGET_DEFS[widget.type]?.minH;
+  if (widget.type === 'metric') return [2, 4].includes(widget.w) ? 1 : 2;
+  if (['clock', 'weather'].includes(widget.type) && widget.w === 4) return 1;
+  return WIDGET_DEFS[widget.type]?.minH;
 }
 export function fits(page, widget, ignoreId = widget.id) {
   const def = WIDGET_DEFS[widget.type];

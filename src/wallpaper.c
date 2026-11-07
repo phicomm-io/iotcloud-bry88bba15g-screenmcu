@@ -17,8 +17,9 @@ static bool timed(screen_wallpaper *w,uint32_t start) {
  return w->now&&(uint32_t)(w->now(w->context)-start)>WALLPAPER_IO_DEADLINE;
 }
 static void stop(screen_wallpaper *w) {
- if(w->active&&w->activity)w->activity(w->context,false);
+ bool active=w->active;
  w->active=w->preparing=false;
+ if(active&&w->activity)w->activity(w->context,false);
 }
 static bool owned(screen_wallpaper *w,uint32_t bank) {
  uint8_t p[20];return read_at(w,bank,p,sizeof(p))&&!memcmp(p,owner,16)&&scene_u32(p+16)==scene_crc32(owner,16);

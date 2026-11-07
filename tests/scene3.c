@@ -42,6 +42,16 @@ int main(void){
  s.item[external].type=SC_VALUE;s.item[external].value_mode=SC_VALUE_NUMBER;
  assert(scene_encode(&s,bytes)&&scene_decode(&out,bytes,sizeof(bytes)));
  s.item[external].w=3;assert(!scene_validate(&s));
+ s.item[external].w=2;
+ assert(scene_requires_compact(&s.item[external]));
+ assert(scene_encode(&s,bytes)&&scene_decode(&out,bytes,sizeof(bytes))&&out.item[external].w==2&&out.item[external].h==1);
+ s.item[external].value_mode=0;s.item[external].w=4;s.item[external].type=SC_CLOCK;
+ assert(scene_encode(&s,bytes)&&scene_decode(&out,bytes,sizeof(bytes))&&out.item[external].h==1);
+ s.item[external].type=SC_WEATHER;
+ assert(scene_encode(&s,bytes)&&scene_decode(&out,bytes,sizeof(bytes))&&out.item[external].h==1);
+ s.item[external].h=2;
+ assert(scene_encode(&s,bytes)&&scene_decode(&out,bytes,sizeof(bytes))&&out.item[external].h==2);
+ s.item[external].h=1;s.item[external].w=2;assert(!scene_validate(&s));
  s.item[external].w=4;s.item[external].h=6;s.item[external].type=SC_LINE;s.item[external].value_mode=0;
  s.item[external].binding=SC_BIND_TEMP;assert(!scene_validate(&s));
  s.item[external].binding=SC_BIND_EXTERNAL;

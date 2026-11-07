@@ -119,11 +119,34 @@ static void weather_icon(lv_obj_t *parent,int x,int y,int size,const char *text,
   lv_obj_set_style_bg_opa(o,LV_OPA_TRANSP,0);
   lv_obj_add_event_cb(o,draw_weather,LV_EVENT_DRAW_MAIN,(void*)(uintptr_t)(weather_kind(text)|(valid?0:16)));
 }
+static const lv_font_t *fit_font(const char *,unsigned,bool,int,int);
 static void weather_card(lv_obj_t *c,const screen_weather *v,const scene_item *it,int w,int h) {
   bool full=it->w==4&&it->h==6,good=v->valid&&!v->expired;char b[96];
   int reclaim=it->hide_title?52:0;
   if(v->valid&&(v->fields&1))snprintf(b,sizeof(b),"%.0f°",(double)v->temperature);else strcpy(b,"--");
-  if(full) {
+  if(it->w==4&&it->h==1) {
+    const char *title=it->hide_title?"":v->location[0]?v->location:it->title;
+    label(c,0,4,130,36,title,screen_ui_font(28,false),wc(1));
+    label(c,0,it->hide_title?32:56,130,36,v->expired?"已过期":v->valid?screen_weather_text(english,v->text):"--",screen_ui_font(24,false),wc(4));
+    weather_icon(c,142,(h-64)/2,64,v->text,good);
+    const lv_font_t *font=fit_font(b,72,true,w-220,h);
+    lv_obj_t *o=label(c,220,(h-font->line_height)/2,w-220,font->line_height,b,font,good?wc(2):MUTED);
+    lv_obj_set_style_text_align(o,LV_TEXT_ALIGN_RIGHT,0);
+  } else if(it->w==4&&it->h==2) {
+    int top=it->hide_title?0:48;
+    weather_icon(c,0,top+8,88,v->text,good);
+    label(c,108,top,150,96,b,fit_font(b,80,true,150,96),good?wc(2):MUTED);
+    label(c,270,top+12,w-270,72,v->expired?"已过期":v->valid?screen_weather_text(english,v->text):"--",screen_ui_font(28,false),wc(4));
+    const char *names[]={"体感","湿度","风速 m/s"};
+    for(unsigned i=0;i<3;i++) {
+      int x=i*w/3,ww=w/3;
+      lv_obj_t *o=label(c,x,top+100,ww,32,names[i],screen_ui_font(24,false),wc(3));
+      lv_obj_set_style_text_align(o,LV_TEXT_ALIGN_CENTER,0);
+      if(v->valid&&(v->fields&(i==0?2:i==1?4:8)))snprintf(b,sizeof(b),i==0?"%.0f°":i==1?"%.0f%%":"%.1f",(double)(i==0?v->feels:i==1?v->humidity:v->wind));else strcpy(b,"--");
+      o=label(c,x,top+132,ww,40,b,&zh32,good?wc(2):MUTED);
+      lv_obj_set_style_text_align(o,LV_TEXT_ALIGN_CENTER,0);
+    }
+  } else if(full) {
     weather_icon(c,(w-100)/2,52-reclaim,100,v->text,good);
     lv_obj_t *o=label(c,0,166-reclaim,w,120,b,screen_ui_font(104,true),good?wc(2):MUTED);
     lv_obj_set_style_text_align(o,LV_TEXT_ALIGN_CENTER,0);
@@ -159,6 +182,7 @@ static void weather_card(lv_obj_t *c,const screen_weather *v,const scene_item *i
   (void)h;
 }
 static const lv_font_t *fit_font(const char *s,unsigned target,bool numeric,int w,int h) {
+  s=screen_translate(english,s);
   for(;;) {
     const lv_font_t *font=screen_ui_font(target,numeric);lv_point_t size;
     lv_txt_get_size(&size,s,font,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
@@ -454,8 +478,10 @@ static lv_obj_t *component(lv_obj_t *root,const screen_model *m,const scene_item
   const scene_data *d=data_for(m,it->id);bool fresh=scene_data_fresh(d,now);
   char b[256];
   if(clock) {
+    bool compact=it->h==1;int time_width=compact?w*3/5:w;
+    const lv_font_t *time_font=compact||it->w<4?&clock72:&clock_font;
     snprintf(b,sizeof(b),m->clock_valid?"%02u:%02u":"--:--",m->hour,m->minute);
-    lv_obj_t *o=label(c,0,10,w,it->w==4?144:100,b,it->w==4?&clock_font:&clock72,wc(2));
+    lv_obj_t *o=label(c,0,compact?(h-time_font->line_height)/2:10,time_width,compact?time_font->line_height:it->w==4?144:100,b,time_font,wc(2));
     lv_obj_set_style_text_align(o,LV_TEXT_ALIGN_CENTER,0);lv_obj_set_style_text_letter_space(o,-2,0);
     if(m->clock_valid) {
       /* Gregorian civil date from days since 1970; independent of libc TZ. */
@@ -470,13 +496,15 @@ static lv_obj_t *component(lv_obj_t *root,const screen_model *m,const scene_item
         snprintf(b,sizeof(b),"%s %u · %s",months[month-1],day,week[(m->local_day+4)%7]);
       } else snprintf(b,sizeof(b),"%u月%u日 · 周%s",month,day,days[(m->local_day+4)%7]);
     } else strcpy(b,"-- / --");
-    o=label(c,0,it->w==4?164:114,w,40,b,&zh32,wc(3));lv_obj_set_style_text_align(o,LV_TEXT_ALIGN_CENTER,0);
+    int date_x=compact?time_width+12:0,date_width=w-date_x;
+    o=label(c,date_x,compact?(h-40)/2:it->w==4?164:114,date_width,40,b,compact?fit_font(b,28,false,date_width,40):&zh32,wc(3));lv_obj_set_style_text_align(o,LV_TEXT_ALIGN_CENTER,0);
     return c;
   }
   bool full=it->w==4&&it->h==6;
   const char *title=it->hide_title?"":it->type==SC_WEATHER&&m->weather.location[0]?m->weather.location:it->title;
-  if(title[0]&&it->type!=SC_VALUE&&(!(it->type==SC_LINE||it->type==SC_BAR||it->type==SC_PIE)||it->h>=4)&&
-     (!full||strcmp(title,m->scene.page[it->page].title)))label(c,0,0,it->type==SC_WEATHER&&!full?w-46:w,40,title,&zh32,wc(1));
+  bool wide_weather=it->type==SC_WEATHER&&it->w==4&&it->h<=2;
+  if(title[0]&&it->type!=SC_VALUE&&!(wide_weather&&it->h==1)&&(!(it->type==SC_LINE||it->type==SC_BAR||it->type==SC_PIE)||it->h>=4)&&
+     (!full||strcmp(title,m->scene.page[it->page].title)))label(c,0,0,it->type==SC_WEATHER&&!full&&!wide_weather?w-46:w,40,title,&zh32,wc(1));
   if(it->type==SC_VALUE) {
     bool local=it->binding<SCREEN_METRICS;
     bool ok=local?screen_sample_valid(m,it->binding,now):fresh&&d->count;

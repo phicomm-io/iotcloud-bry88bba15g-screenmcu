@@ -38,10 +38,21 @@ bool guard_receive(screen_guard *g, const char *line, size_t size, bool ota) {
   put32(reply + 3, offset);
   size_t bytes = 11;
   bool reset = false, install = false;
-  if (n == 8 && ((!offset && !count) || p[1] == GUARD_READ_BOOT)) {
+  if (n == 8 && ((!offset && !count) || p[1] == GUARD_READ_BOOT ||
+                 p[1] == GUARD_NOR_MODE)) {
     reply[2] = ota ? GUARD_BUSY : GUARD_OK;
     if (!ota) {
       switch (p[1]) {
+      case GUARD_NOR_MODE:
+        if (count || offset < GUARD_NOR_GPIO || offset > GUARD_NOR_SFC_QUAD)
+          reply[2] = GUARD_RANGE;
+        else if (g->normal || g->released || !g->nor_mode)
+          reply[2] = GUARD_UNSUPPORTED;
+        else if (!g->nor_mode(g->context, offset))
+          reply[2] = GUARD_IO;
+        else
+          g->held = true;
+        break;
       case GUARD_HOLD:
         if (g->normal)
           reply[2] = GUARD_UNSUPPORTED;

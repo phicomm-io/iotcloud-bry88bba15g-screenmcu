@@ -170,11 +170,16 @@ test('clock, chart and mixed widgets share a collision-free grid with readable m
   assert.equal(fits(page, { ...chart, x: .5 }), false);
   assert.equal(validateLayouts([page]), true);
 });
-test('only full-width measurement widgets may shrink to one row', () => {
+test('compact weather, clock and half-width readings fit one row without changing other minimums', () => {
   const metric = makeWidget('metric', 'metric'), page = { widgets: [] };
-  assert.equal(fits(page, { ...metric, h: 1 }), false);
+  assert.equal(fits(page, { ...metric, h: 1 }), true);
   assert.equal(fits(page, { ...metric, w: 3, h: 1 }), false);
   assert.equal(fits(page, { ...metric, w: 4, h: 1 }), true);
+  for (const type of ['clock', 'weather']) {
+    assert.equal(fits(page, { ...makeWidget(type, type), w: 4, h: 1 }), true);
+    assert.equal(fits(page, { ...makeWidget(type, type), w: 2, h: 1 }), false);
+  }
+  for (const type of ['text', 'chart', 'reminders']) assert.equal(fits(page, { ...makeWidget(type, type), w: 4, h: 1 }), false);
   page.widgets.push({ ...metric, w: 4, h: 1, y: 5 });
   assert.equal(fits(page, { ...metric, w: 4, h: 2, y: 5 }), false);
 });

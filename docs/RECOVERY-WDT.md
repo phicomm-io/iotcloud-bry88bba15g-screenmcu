@@ -126,13 +126,27 @@ SET/电源引脚。小于 `100` 时镜像带 `backlight_max=N;`，清单记录
 | 字节 0、1 | `0xe0`、操作码 |
 | 字节 2–5 | offset，LE32 |
 | 字节 6–7 | length，LE16 |
-| 操作码 | 1 hold、2 resume、3 只读引导区、4 软件复位进入维护、5 校验后请求原厂引导安装 |
+| 操作码 | 1 hold、2 resume、3 只读引导区、4 软件复位进入维护、5 校验后请求原厂引导安装、6 选择本次启动的 NOR 总线 |
 | 响应 | `0xe1, op, result, offset/LE32, total/LE32, bytes...` |
 | result | 0 成功、1 越界／格式错误、2 OTA 忙、3 不支持、4 读取失败 |
 
 只读范围 `[0,0x14000)`，每块 1–256 字节；直接总线读取，不调用 IAP，
 不改 Flash、保护位或调试引脚。固定帧长度、CRC、会话、递增序号及 OTA 互斥均检查。
 hold/resume 仅用于普通启动窗口；resume 会立即取消剩余等待，也可解除 hold；OTA 进行中返回 busy，强制故障维护不接受 resume。网页“屏幕 → 资源与升级”提供“立即继续启动”和“保持最小服务”。复位命令在应答发送成功后执行。
+
+NOR 默认使用硬件四线 SFC 读写，擦除和状态查询也通过 SFC，不自动降级。
+操作 6 仅在业务启动前接受：offset=1 为 GPIO 单线 SPI、2 为单线 SFC、3 为四线 SFC，
+length 必须为 0。成功后保持维护窗口，普通启动可再发送 resume。
+配套 ESP32 命令为 `screen.recovery.nor.set`，参数 `{"mode":"sfc_quad"}`、
+`{"mode":"sfc_single"}` 或 `{"mode":"gpio"}`。选择不持久保存，重启恢复四线 SFC。
+首次 NOR 升级标志确认安排在窗口结束后，使诊断选择可以先于 NOR 访问。
+
+NOR reads and page programming default to hardware quad SFC. Erases and status
+queries also use SFC; errors never select another bus automatically. Startup-only
+operation 6 selects GPIO (offset 1), single SFC (2), or quad SFC (3), with length 0,
+and holds the maintenance window. The ESP command is `screen.recovery.nor.set`
+with mode `gpio`, `sfc_single`, or `sfc_quad`. Selection lasts for this boot only;
+reset restores quad SFC. The first boot-flag acknowledgement follows this window.
 
 配套 ESP32 现在默认于 MCU 窗口开始约 5 秒后发送现有 resume 操作。网页可关闭
 “启动 5 秒后自动继续”，持久保存后保留完整 30 秒窗口。手动 hold 优先，故障模式

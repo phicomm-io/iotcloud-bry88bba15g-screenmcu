@@ -32,6 +32,7 @@ int board_receive(void);
 void board_delay(unsigned);
 void board_recovery(void) __attribute__((noreturn));
 void board_nor_init(void);
+bool board_nor_mode(void *, unsigned);
 unsigned board_nor_read_mode(void);
 uint32_t board_jedec(void);
 uint8_t board_nor_status(unsigned);

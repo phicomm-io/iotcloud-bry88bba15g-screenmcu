@@ -127,6 +127,73 @@ static void compact_layout(void) {
  assert(screen_ui(&model,120000,false));draw();inside(card());lv_obj_get_coords(card(),&a);
  assert(a.x1==16&&a.y1==716&&a.x2==463&&a.y2==837);artifact("layout-bottom-row");
 }
+static void fits_text(lv_obj_t *o) {
+ assert(o);lv_point_t size;
+ lv_txt_get_size(&size,lv_label_get_text(o),lv_obj_get_style_text_font(o,0),
+                 lv_obj_get_style_text_letter_space(o,0),0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+ assert(size.x<=lv_obj_get_width(o)&&size.y<=lv_obj_get_height(o));
+}
+static void fits_label(lv_obj_t *root,const char *text) {
+ lv_obj_t *o=find(root,text);if(!o)fprintf(stderr,"Missing compact label: %s\n",text);fits_text(o);
+}
+static void compact_widgets(void) {
+ screen_init(&model);model.battery_valid=true;model.battery_percent=78;
+ wallpaper.ready=false;wallpaper.wanted=0;
+ model.clock_valid=true;model.hour=18;model.minute=42;model.local_day=20763;
+ model.weather=(screen_weather){.valid=true,.fields=15,.temperature=26,.feels=27,.humidity=62,.wind=2.4};
+ strcpy(model.weather.location,"广州");strcpy(model.weather.text,"晴间多云");
+ for(unsigned lang=0;lang<2;lang++) {
+  model.appearance.language=lang;
+  scene(SC_CLOCK,4,1);assert(scene_validate(&model.scene));
+  assert(screen_ui(&model,120000,false));draw();
+  lv_obj_t *time=find(lv_scr_act(),"18:42");fits_text(time);inside(lv_obj_get_parent(time));
+  lv_obj_t *date=lv_obj_get_child(lv_obj_get_parent(time),1);fits_text(date);
+  assert(lv_obj_get_x(time)+lv_obj_get_width(time)<lv_obj_get_x(date));
+  model.clock_valid=false;assert(screen_ui(&model,120000,false));draw();fits_label(lv_scr_act(),"--:--");
+  model.clock_valid=true;
+  for(unsigned rows=1;rows<=2;rows++) {
+   scene(SC_WEATHER,4,rows);strcpy(model.scene.item[0].title,"广州");
+   assert(scene_validate(&model.scene));
+   for(unsigned hidden=0;hidden<2;hidden++) {
+    model.scene.item[0].hide_title=hidden;
+    for(unsigned state=0;state<3;state++) {
+     model.weather.valid=state!=1;model.weather.expired=state==2;
+     assert(screen_ui(&model,120000,false));draw();
+     lv_obj_t *temp=find(lv_scr_act(),state==1?"--":"26°");assert(temp);
+     inside(lv_obj_get_parent(temp));fits_text(temp);
+     if(rows==2&&state!=1)assert(find(lv_scr_act(),"62%")&&find(lv_scr_act(),lang?"Feels like":"体感"));
+    }
+    model.weather.temperature=-40;assert(screen_ui(&model,120000,false));draw();fits_label(lv_scr_act(),"-40°");model.weather.temperature=26;
+   }
+  }
+  scene(SC_VALUE,2,1);assert(scene_validate(&model.scene));
+  const float samples[]={628,9999,-12};const char *texts[]={"628","9999","-12"};
+  for(unsigned i=0;i<3;i++) {
+   screen_sample_set(&model,MET_CO2,samples[i],true,120000);
+   assert(screen_ui(&model,120000,false));draw();inside(card());fits_label(card(),texts[i]);
+  }
+  model.scene.item[0].binding=MET_TVOC;model.scene.item[0].value_mode=SC_VALUE_GRADE;
+  model.tvoc_level=1;screen_sample_set(&model,MET_TVOC,100,true,120000);
+  assert(screen_ui(&model,120000,false));draw();inside(card());fits_label(card(),lang?"Good":"优");
+ }
+ /* One six-row scene exercises every new shape together through the real renderer. */
+ scene(SC_CLOCK,4,1);model.scene.count=6;strcpy(model.scene.page[0].title,"组合");
+ model.scene.item[1]=(scene_item){.id=2,.type=SC_WEATHER,.y=1,.w=4,.h=1};
+ model.scene.item[2]=(scene_item){.id=3,.type=SC_WEATHER,.y=2,.w=4,.h=2};
+ strcpy(model.scene.item[1].title,"广州");strcpy(model.scene.item[2].title,"广州");
+ model.scene.item[3]=(scene_item){.id=4,.type=SC_VALUE,.binding=MET_CO2,.y=4,.w=2,.h=1};strcpy(model.scene.item[3].title,"CO2");
+ model.scene.item[4]=(scene_item){.id=5,.type=SC_VALUE,.binding=MET_TEMP,.x=2,.y=4,.w=2,.h=1};strcpy(model.scene.item[4].title,"温度");
+ model.scene.item[5]=(scene_item){.id=6,.type=SC_VALUE,.binding=MET_TVOC,.y=5,.w=4,.h=1};strcpy(model.scene.item[5].title,"TVOC");
+ model.weather.valid=true;model.weather.expired=false;
+ screen_sample_set(&model,MET_CO2,628,true,120000);screen_sample_set(&model,MET_TEMP,23.5,true,120000);
+ assert(scene_validate(&model.scene));
+ for(unsigned lang=0;lang<2;lang++) {
+  model.appearance.language=lang;assert(screen_ui(&model,120000,false));draw();
+  artifact(lang?"compact-widgets-en":"compact-widgets-zh");
+ }
+ const char *dir=getenv("SCREEN_UI_EVIDENCE");
+ if(dir){char path[1024];uint8_t bytes[SCENE_BYTES];assert(scene_encode(&model.scene,bytes));snprintf(path,sizeof(path),"%s/compact-widgets.bin",dir);FILE *f=fopen(path,"wb");assert(f);assert(fwrite(bytes,1,sizeof(bytes),f)==sizeof(bytes));fclose(f);}
+}
 int main(void) {
  const char *bank=getenv("SCREEN_TEST_FONT");
  if(bank){
@@ -350,5 +417,6 @@ int main(void) {
  }
  artifact("sixth-page-three-units");
  printf("PASS UI: 16px margins, 448x772 content, full-width translucent rail for 1-8 pages, disabled-page filtering, retained label/card identity, isolated minute chart, 144 KiB bounded glyph LRU, square/row growth, 4x1, seven 4x2 charts, singleton pixels, drizzle icon pixels in both weather sizes, freshness/clock/TTL invalidation, 4000 unchanged frames %.2f ms, 200 local updates %.2f ms, heap stable %u bytes free, peak %u / %u bytes\n",skipped_ms,redraw_ms,(unsigned)after.free_size,(unsigned)after.max_used,(unsigned)after.total_size);
+ compact_widgets();puts("PASS compact widgets: 4x1 clock/weather, 4x2 weather, 2x1 readings; real label bounds, numeric fitting, missing/expired data, title hiding and both languages");
  lv_deinit();return 0;
 }

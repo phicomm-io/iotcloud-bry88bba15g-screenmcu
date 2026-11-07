@@ -402,9 +402,8 @@ void board_display(void) {
   PWM_Start(PWM3_MSK);
   board_backlight(0);
 }
-/* Stock routing is the dedicated SFC bus, not SPI0/1. Use hardware reads and
- * retain the GPIO command/write path for recovery. Protection/QE stay intact;
- * PB12/PB14 SWD pins are never configured by this BSP. */
+/* The factory application uses SFC for reads, page programming and erases.
+ * GPIO SPI is available only when explicitly selected during UART startup. */
 static uint8_t spi(uint8_t value) {
   uint8_t result = 0;
   for (unsigned i = 0; i < 8; i++) {
@@ -421,8 +420,6 @@ static uint8_t nor_read_byte(void) {
   uint8_t value=0;
   for(unsigned bit=0;bit<8;bit++) {
     GPIOD->DATAPIN5=0;
-    /* >= 8 core cycles per phase even at 240 MHz (33 ns). GPIO bus cycles
-     * extend this; interrupts remain enabled and can only lengthen a phase. */
     __NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();
     GPIOD->DATAPIN5=1;
     __NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();
@@ -439,7 +436,8 @@ static void address(uint32_t a) {
   spi(a >> 8);
   spi(a);
 }
-static uint8_t nor_read_mode IRAM; /* 0 untested, 1 GPIO, 2 SFC, 3 quad SFC */
+static uint8_t nor_read_mode IRAM;
+static bool nor_quad_ready IRAM;
 unsigned board_nor_read_mode(void) {return nor_read_mode;}
 static void nor_gpio(void) {
   GPIO_SetBit(GPIOD,6);GPIO_SetBit(GPIOD,5);
@@ -447,46 +445,6 @@ static void nor_gpio(void) {
   GPIO_INIT(GPIOD,8,GPIO_OUTPUT);GPIO_INIT(GPIOD,7,GPIO_INPUT);
   GPIO_SetBit(GPIOD,3);GPIO_SetBit(GPIOD,4);
   GPIO_INIT(GPIOD,3,GPIO_OUTPUT);GPIO_INIT(GPIOD,4,GPIO_OUTPUT);
-}
-void board_nor_init(void) {
-  nor_read_mode=0;nor_gpio();
-}
-uint32_t board_jedec(void) {
-  cs(false);
-  spi(0x9f);
-  uint32_t id = spi(0);
-  id = id << 8 | spi(0);
-  id = id << 8 | spi(0);
-  cs(true);
-  return id;
-}
-uint8_t board_nor_status(unsigned reg) {
-  cs(false);
-  spi(reg == 2 ? 0x35 : 0x05);
-  uint8_t s = spi(0);
-  cs(true);
-  return s;
-}
-static bool ready(unsigned timeout) {
-  uint32_t start = board_ms;
-  while (board_nor_status(1) & 1)
-    if ((uint32_t)(board_ms - start) > timeout)
-      return false;
-  return true;
-}
-static bool writable(void) {
-  return board_jedec() == 0x684018 && !(board_nor_status(1) & 0x7c) &&
-         !(board_nor_status(2) & 0x40) && ready(1000);
-}
-static void nor_gpio_read(uint32_t a,void *out,size_t n) {
-  cs(false);
-  spi(3);
-  address(a);
-  GPIOD->DATAPIN8=0;
-  uint8_t *p = out;
-  while (n--)
-    *p++ = nor_read_byte();
-  cs(true);
 }
 static void nor_sfc_reset(void) {
   SYS->PRSTEN=0x55;
@@ -496,109 +454,180 @@ static void nor_sfc_reset(void) {
 }
 static void nor_sfc_config(bool quad) {
   SYS->CLKEN1|=SYS_CLKEN1_SFC_Msk;nor_sfc_reset();
-  /* SDK controller setup without SFC_Init's implicit status/QE writes.
-   * /8 is <=30 MHz at 240 MHz; stock uses /2. WREN stays clear throughout. */
   *((volatile uint32_t *)((uintptr_t)&SFC->CFG+0x3f4))=7;
-  SFC->CFG=(3u<<SFC_CFG_CLKDIV_Pos)|(quad?2u<<SFC_CFG_DATA4L_RD_Pos:0)|SFC_CFG_CMDWREN_Msk;
-  SFC->CMDAHB=((quad?0xebu:3u)<<24)|(5u<<16)|(2u<<8)|6u;
+  SFC->CFG=(3u<<SFC_CFG_CLKDIV_Pos)|SFC_CFG_CMDWREN_Msk|
+      (quad?((2u<<SFC_CFG_DATA4L_RD_Pos)|SFC_CFG_DATA4L_PP_Msk):0);
+  SFC->CMDAHB=((quad?0xebu:3u)<<24)|(5u<<16)|((quad?0x32u:2u)<<8)|6u;
   SFC->CFG&=~SFC_CFG_CMDWREN_Msk;
-  SFC->TIM=(3u<<SFC_TIM_CSHIGH_Pos)|(3u<<SFC_TIM_IDLETO_Pos)|(255u<<8)|1u;
+  /* Poll page programs promptly; erases use the longest WIP interval below. */
+  SFC->TIM=(3u<<SFC_TIM_CSHIGH_Pos)|(3u<<SFC_TIM_IDLETO_Pos)|0xff01u;
   SFC->IE=0;SFC->IF=7;
-}
-static bool nor_sfc_idle(void) {
-  uint32_t start=board_ms;
-  for(unsigned budget=100000;budget;budget--) {
-    if(!(SFC->SR&SFC_SR_BUSY_Msk)&&!SFC->GO)return true;
-    if((uint32_t)(board_ms-start)>=3)break;
-  }
-  return false;
-}
-static bool nor_sfc_read(uint32_t a,void *out,size_t n) {
-  if(!nor_sfc_idle())return false;
   PORT_Init(PORTD,5,PORTD_PIN5_FSPI_SCLK,0);
   PORT_Init(PORTD,6,PORTD_PIN6_FSPI_SSEL,0);
   PORT_Init(PORTD,8,PORTD_PIN8_FSPI_MOSI,1);
   PORT_Init(PORTD,7,PORTD_PIN7_FSPI_MISO,1);
   PORT_Init(PORTD,3,PORTD_PIN3_FSPI_DATA2,1);
   PORT_Init(PORTD,4,PORTD_PIN4_FSPI_DATA3,1);
-  __DSB();uint8_t *p=out;
-  /* SFC AHB accesses must be WORD sized. Each read clocks a fixed number of
-   * bits: an absent NOR yields bad data, not a WIP wait. Extract bytes for
-   * unaligned addresses and destination buffers. */
+  __DSB();
+}
+bool board_nor_mode(void *ctx,unsigned mode) {
+  (void)ctx;
+  if(mode<GUARD_NOR_GPIO||mode>GUARD_NOR_SFC_QUAD)return false;
+  nor_read_mode=mode;nor_quad_ready=false;
+  if(mode==GUARD_NOR_GPIO)nor_gpio();
+  else nor_sfc_config(mode==GUARD_NOR_SFC_QUAD);
+  return true;
+}
+void board_nor_init(void) {
+  board_nor_mode(NULL,GUARD_NOR_SFC_QUAD);
+}
+static bool nor_sfc_idle(unsigned timeout) {
+  uint32_t start=board_ms;
+  for(unsigned budget=timeout*100000u;budget;budget--) {
+    if(!(SFC->SR&SFC_SR_BUSY_Msk)&&!SFC->GO)return true;
+    if((uint32_t)(board_ms-start)>=timeout)break;
+    board_watchdog_feed();
+  }
+  return false;
+}
+/* Register commands use the SFC even when the command itself is single-line. */
+static bool nor_sfc_command(uint8_t cmd,unsigned type,uint32_t a,uint32_t data,unsigned timeout) {
+  if(!nor_sfc_idle(3))return false;
+  uint32_t timing=SFC->TIM;
+  if(type==7)SFC->TIM=(timing&~0xffffu)|0xffffu;
+  SFC->IF=7;
+  SFC->CFG=(SFC->CFG&~(SFC_CFG_CMDTYPE_Msk|SFC_CFG_WREN_Msk))|
+      SFC_CFG_CMDWREN_Msk|(type<<SFC_CFG_CMDTYPE_Pos)|
+      ((type==6||type==7)?SFC_CFG_WREN_Msk:0);
+  SFC->ADDR=a;SFC->DATA=data;SFC->CMD=cmd;
+  SFC->GO=1;__DSB();__ISB();
+  /* A short status write may finish before the first WIP sample. The QE
+   * caller verifies its resulting status; TO still means failure. */
+  bool ok=nor_sfc_idle(timeout)&&!(SFC->IF&
+      (SFC_IF_TO_Msk|(type==6?0:SFC_IF_ERR_Msk)));
+  SFC->CFG&=~(SFC_CFG_WREN_Msk|SFC_CFG_CMDWREN_Msk);
+  SFC->TIM=timing;
+  return ok;
+}
+uint32_t board_jedec(void) {
+  if(nor_read_mode!=GUARD_NOR_GPIO) {
+    if(!nor_sfc_command(0x9f,2,0,0,3))return 0;
+    /* Register DATA places the first wire byte in its low byte. Keep the
+     * public JEDEC value in the same wire order as GPIO SPI. */
+    uint32_t id=SFC->DATA;
+    return ((id&255)<<16)|(id&0xff00)|((id>>16)&255);
+  }
+  cs(false);spi(0x9f);
+  uint32_t id=spi(0);id=id<<8|spi(0);id=id<<8|spi(0);
+  cs(true);return id;
+}
+uint8_t board_nor_status(unsigned reg) {
+  uint8_t cmd=reg==2?0x35:0x05;
+  if(nor_read_mode!=GUARD_NOR_GPIO)
+    return nor_sfc_command(cmd,1,0,0,3)?(uint8_t)SFC->DATA:0xff;
+  cs(false);spi(cmd);uint8_t s=spi(0);cs(true);return s;
+}
+static bool ready(unsigned timeout) {
+  uint32_t start=board_ms;
+  while(board_nor_status(1)&1) {
+    if((uint32_t)(board_ms-start)>timeout)return false;
+    board_watchdog_feed();
+  }
+  return true;
+}
+static bool nor_quad_enable(void) {
+  if(nor_read_mode!=GUARD_NOR_SFC_QUAD||nor_quad_ready)return true;
+  if(board_jedec()!=0x684018)return false;
+  uint8_t sr1=board_nor_status(1),sr2=board_nor_status(2);
+  /* Match SFC_Init's QE setup while preserving every protection bit. */
+  if(!(sr2&2)) {
+    if(!nor_sfc_command(1,6,0,(uint32_t)sr1|((uint32_t)(sr2|2)<<8),1000)||
+       !ready(1000)||!(board_nor_status(2)&2))return false;
+  }
+  nor_quad_ready=true;return true;
+}
+static bool writable(void) {
+  return board_jedec()==0x684018&&!(board_nor_status(1)&0x7c)&&
+      !(board_nor_status(2)&0x40)&&ready(1000)&&nor_quad_enable();
+}
+static void nor_gpio_read(uint32_t a,void *out,size_t n) {
+  cs(false);spi(3);address(a);GPIOD->DATAPIN8=0;
+  uint8_t *p=out;while(n--)*p++=nor_read_byte();cs(true);
+}
+static bool nor_sfc_read(uint32_t a,void *out,size_t n) {
+  if(!nor_sfc_idle(3))return false;
+  SFC->IF=7;
+  uint8_t *p=out;
   while(n) {
     uint32_t word=*(volatile const uint32_t *)(0x70000000u+(a&~3u));
     unsigned offset=a&3u,count=4-offset;if(count>n)count=n;
     for(unsigned i=0;i<count;i++)*p++=(uint8_t)(word>>(8*(offset+i)));
     a+=count;n-=count;
   }
-  __DSB();bool ok=nor_sfc_idle()&&!(SFC->IF&(SFC_IF_ERR_Msk|SFC_IF_TO_Msk));
-  nor_gpio();return ok;
+  __DSB();return nor_sfc_idle(3)&&!(SFC->IF&(SFC_IF_ERR_Msk|SFC_IF_TO_Msk));
 }
-bool board_nor_read(void *ctx, uint32_t a, void *out, size_t n) {
+bool board_nor_read(void *ctx,uint32_t a,void *out,size_t n) {
   (void)ctx;
   if(a>0x1000000u||n>0x1000000u-a||(!out&&n))return false;
   if(!n)return true;
-  if(!ready(1000))return false;
+  if(!ready(1000)||!nor_quad_enable())return false;
   board_watchdog_feed();
-  if(!nor_read_mode) {
-    uint8_t reference[32],probe[32];size_t count=n<32?n:32;
-    nor_gpio_read(a,reference,count);
-    bool quad=board_jedec()==0x684018&&(board_nor_status(2)&2);
-    nor_sfc_config(quad);
-    bool ok=nor_sfc_read(a,probe,count)&&!memcmp(reference,probe,count);
-    if(!ok&&quad){nor_sfc_config(false);quad=false;ok=nor_sfc_read(a,probe,count)&&!memcmp(reference,probe,count);}
-    nor_read_mode=ok?(quad?3:2):1;
-  }
-  if(nor_read_mode>=2) {
-    if(nor_sfc_read(a,out,n))return true;
-    /* Latch failure until reboot. Reset only SFC, never the MCU or NOR. */
-    nor_read_mode=1;nor_sfc_reset();nor_gpio();
-  }
-  nor_gpio_read(a,out,n);return true;
+  if(nor_read_mode==GUARD_NOR_GPIO){nor_gpio_read(a,out,n);return true;}
+  return nor_sfc_read(a,out,n);
 }
-bool board_nor_erase(void *ctx, uint32_t a, size_t n) {
+static bool nor_erase_block(uint32_t a,uint8_t cmd) {
+  board_watchdog_feed();
+  if(nor_read_mode==GUARD_NOR_GPIO) {
+    cs(false);spi(6);cs(true);
+    cs(false);spi(cmd);address(a);cs(true);
+  } else if(!nor_sfc_command(cmd,7,a,0,5000))return false;
+  return ready(5000);
+}
+bool board_nor_erase(void *ctx,uint32_t a,size_t n) {
   (void)ctx;
-  if (a < 0x780000 || (a & 0x7fff) || (n & 0x7fff) || n > 0x68000 ||
-      a + n > 0x7e8000 || !writable())
-    return false;
-  while (n) {
-    board_watchdog_feed();
-    cs(false);
-    spi(6);
-    cs(true);
-    cs(false);
-    spi(0x52);
-    address(a);
-    cs(true);
-    if (!ready(5000))
-      return false;
-    board_watchdog_feed();
-    a += 0x8000;
-    n -= 0x8000;
+  if(a<0x780000||a>0x7e8000||(a&0x7fff)||(n&0x7fff)||n>0x68000||
+     n>0x7e8000-a||!writable())return false;
+  while(n) {
+    if(!nor_erase_block(a,0x52))return false;
+    a+=0x8000;n-=0x8000;
   }
   return true;
 }
 static bool nor_program(uint32_t a,const void *v,size_t n) {
   if(!writable())return false;
-  const uint8_t *p = v;
-  while (n) {
-    size_t part = 256 - (a & 255);
-    if (part > n)
-      part = n;
-    cs(false);
-    spi(6);
-    cs(true);
-    cs(false);
-    spi(2);
-    address(a);
-    for (size_t i = 0; i < part; i++)
-      spi(p[i]);
-    cs(true);
-    if (!ready(1000))
-      return false;
-    a += part;
-    p += part;
-    n -= part;
+  const uint8_t *p=v;
+  while(n) {
+    size_t part=256-(a&255);if(part>n)part=n;
+    if(nor_read_mode==GUARD_NOR_GPIO) {
+      cs(false);spi(6);cs(true);
+      cs(false);spi(2);address(a);
+      for(size_t i=0;i<part;i++)spi(p[i]);
+      cs(true);
+    } else {
+      SFC->IF=7;SFC->CFG|=SFC_CFG_WREN_Msk;
+      /* SFC AHB writes are aligned words. FF padding preserves adjacent bits
+       * for byte-sized boot flags and unaligned resource headers. */
+      for(size_t i=0;i<part;) {
+        unsigned offset=(a+i)&3u,count=4-offset;
+        if(count>part-i)count=part-i;
+        uint32_t word=0xffffffffu;
+        memcpy((uint8_t *)&word+offset,p+i,count);
+        *(volatile uint32_t *)(0x70000000u+((a+i)&~3u))=word;
+        i+=count;
+      }
+      __DSB();bool ok=nor_sfc_idle(1000)&&!(SFC->IF&SFC_IF_TO_Msk);
+      bool check_write=(SFC->IF&SFC_IF_ERR_Msk)!=0;
+      SFC->CFG&=~SFC_CFG_WREN_Msk;
+      if(!ok)return false;
+      /* ERR means WIP was already clear at the first controller sample.
+       * Accept a completed short program only after exact readback. */
+      if(check_write) {
+        uint8_t check[256];
+        if(!ready(1000)||!nor_sfc_read(a,check,part)||memcmp(check,p,part))return false;
+      }
+    }
+    if(!ready(1000))return false;
+    board_watchdog_feed();a+=part;p+=part;n-=part;
   }
   return true;
 }
@@ -609,36 +638,24 @@ bool board_nor_write(void *ctx,uint32_t a,const void *v,size_t n) {
 /* Optional wallpaper banks are isolated from factory images, fonts and OTA. */
 bool board_resource_write(void *ctx,uint32_t a,const void *v,size_t n) {
   (void)ctx;
-  return ((a>=0xa00000&&a<=0xa80000&&n<=0xa80000-a)||
-          (a>=SCREEN_FONT_BASE&&a<=SCREEN_FONT_BASE+2*SCREEN_FONT_BANK&&n<=SCREEN_FONT_BASE+2*SCREEN_FONT_BANK-a))&&nor_program(a,v,n);
+  if(!((a>=0xa00000&&a<=0xa80000&&n<=0xa80000-a)||
+       (a>=SCREEN_FONT_BASE&&a<=SCREEN_FONT_BASE+2*SCREEN_FONT_BANK&&n<=SCREEN_FONT_BASE+2*SCREEN_FONT_BANK-a)))return false;
+  return nor_program(a,v,n);
 }
 bool board_resource_erase(void *ctx,uint32_t a,size_t n) {
   (void)ctx;
-  if(!((a>=0xa00000&&a<0xa80000)||(a>=SCREEN_FONT_BASE&&a<SCREEN_FONT_BASE+2*SCREEN_FONT_BANK))||(a&4095)||n!=4096||!writable())return false;
-  board_watchdog_feed();cs(false);spi(6);cs(true);
-  cs(false);spi(0x20);address(a);cs(true);
-  bool ok=ready(5000);board_watchdog_feed();return ok;
+  if(!((a>=0xa00000&&a<0xa80000)||(a>=SCREEN_FONT_BASE&&a<SCREEN_FONT_BASE+2*SCREEN_FONT_BANK))||
+     (a&4095)||n!=4096||!writable())return false;
+  return nor_erase_block(a,0x20);
 }
 /* Dedicated factory flag operations; general OTA writes cannot reach here. */
-bool board_flag_erase(void *ctx, uint32_t a, size_t n) {
+bool board_flag_erase(void *ctx,uint32_t a,size_t n) {
   (void)ctx;
-  if (a != SCREEN_BOOT_FLAG || n != SCREEN_BOOT_FLAG_BLOCK || !writable())
-    return false;
-  board_watchdog_feed();
-  cs(false); spi(6); cs(true);
-  cs(false); spi(0xd8); address(a); cs(true);
-  bool ok = ready(5000);
-  board_watchdog_feed();
-  return ok;
+  return a==SCREEN_BOOT_FLAG&&n==SCREEN_BOOT_FLAG_BLOCK&&writable()&&nor_erase_block(a,0xd8);
 }
-bool board_flag_write(void *ctx, uint32_t a, const void *v, size_t n) {
+bool board_flag_write(void *ctx,uint32_t a,const void *v,size_t n) {
   (void)ctx;
-  if (a != SCREEN_BOOT_FLAG || n != 1 || !v ||
-      *(const uint8_t *)v != 0xa1 || !writable())
-    return false;
-  cs(false); spi(6); cs(true);
-  cs(false); spi(2); address(a); spi(0xa1); cs(true);
-  return ready(1000);
+  return a==SCREEN_BOOT_FLAG&&n==1&&v&&*(const uint8_t *)v==0xa1&&nor_program(a,v,n);
 }
 static void sda(bool b) {
   GPIO_WriteBit(GPIOA, 0, b);

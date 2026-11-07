@@ -9,6 +9,10 @@ static unsigned resets;
 static bool read_fail, send_fail;
 static unsigned installs, restarts;
 static bool install_fail;
+static unsigned nor_mode = GUARD_NOR_SFC_QUAD, nor_changes;
+static bool select_nor(void *ctx, unsigned mode) {
+  (void)ctx; nor_mode=mode; nor_changes++; return true;
+}
 static bool install(void *ctx) { (void)ctx; installs++; return !install_fail; }
 static void restart(void *ctx) { (void)ctx; restarts++; }
 static bool send_wire(void *ctx, const char *s, size_t n) {
@@ -49,6 +53,27 @@ static size_t request(screen_guard *g, uint32_t seq, unsigned op,
   return size - 11;
 }
 int main(void) {
+  /* An explicit startup command selects a bus for this boot and holds startup.
+   * Invalid, replayed, busy or normal-operation requests cannot change it. */
+  screen_guard diagnostic = {.send=send_wire, .nor_mode=select_nor};
+  guard_init(&diagnostic, 123, 0, false);
+  request(&diagnostic,1,GUARD_NOR_MODE,GUARD_NOR_GPIO,0,true,GUARD_BUSY,NULL);
+  request(&diagnostic,2,GUARD_NOR_MODE,0,0,false,GUARD_RANGE,NULL);
+  request(&diagnostic,3,GUARD_NOR_MODE,4,0,false,GUARD_RANGE,NULL);
+  request(&diagnostic,4,GUARD_NOR_MODE,1,1,false,GUARD_RANGE,NULL);
+  assert(!nor_changes&&nor_mode==GUARD_NOR_SFC_QUAD);
+  for(unsigned mode=GUARD_NOR_GPIO;mode<=GUARD_NOR_SFC_QUAD;mode++) {
+    request(&diagnostic,4+mode,GUARD_NOR_MODE,mode,0,false,GUARD_OK,NULL);
+    assert(nor_mode==mode&&diagnostic.held);
+  }
+  request(&diagnostic,8,GUARD_RESUME,0,0,false,GUARD_OK,NULL);
+  request(&diagnostic,9,GUARD_NOR_MODE,1,0,false,GUARD_UNSUPPORTED,NULL);
+  diagnostic.normal=true;
+  request(&diagnostic,10,GUARD_NOR_MODE,1,0,false,GUARD_UNSUPPORTED,NULL);
+  assert(nor_changes==3);
+  guard_init(&diagnostic,124,0,true);
+  request(&diagnostic,1,GUARD_NOR_MODE,1,0,false,GUARD_OK,NULL);
+  assert(nor_mode==1&&nor_changes==4&&diagnostic.forced);
   /* Resume must end the window immediately, including across tick wrap. */
   screen_guard early = {.send = send_wire};
   guard_init(&early, 77, UINT32_MAX - 100, false);
