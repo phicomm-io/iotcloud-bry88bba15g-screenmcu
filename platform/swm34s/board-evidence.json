@@ -1,0 +1,12 @@
+{
+  "factory_app_sha256": "1d0b848af6195b39849260a3c9ff2a020d574ca9b98c2c2665d2278f349796c2",
+  "port_calls": 59,
+  "lcd_calls": 20,
+  "sdram_calls": 39,
+  "panel_words": 207,
+  "source_ranges": [
+    "0x4a11c..0x4a496",
+    "0x4b1cc..0x4bc66"
+  ],
+  "warning": "Bootloader and live version SV.04.00.01.00 not recovered"
+}

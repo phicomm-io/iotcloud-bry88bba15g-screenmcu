@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>大金 · 屏幕设计预览</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%2318201c'/%3E%3Cpath d='M12 28V12h16M12 20h12' fill='none' stroke='%23b5d5ad' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <a class="wordmark" href="./" aria-label="大金屏幕预览首页"><span class="brand-mark" aria-hidden="true">d.</span><span>大金<span class="wordmark-divider">/</span>屏幕设计</span></a>
+    <div class="header-meta"><span class="demo-tag"><i></i>演示数据</span><span class="model-tag">BRY88BBA15G</span></div>
+  </header>
+
+  <main class="workbench">
+    <aside class="page-rail" aria-label="预览页面">
+      <div class="rail-heading"><span>页面</span><span class="tiny-count" id="page-count">06</span></div>
+      <nav id="page-nav" class="page-nav"></nav>
+      <button class="add-page-button" id="add-page">＋ 组合页面</button>
+      <div class="rail-bottom">
+        <div class="swatch-row" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <p>少一点文字<br>多一点清晰</p>
+        <span>简约 · 大字 · 一眼可读</span>
+        <button class="text-button" id="open-info">设计规格 <span aria-hidden="true">↗</span></button>
+      </div>
+    </aside>
+
+    <section class="preview-stage" aria-label="屏幕预览">
+      <div class="stage-toolbar">
+        <div class="stage-heading"><span class="eyebrow">SCREEN PREVIEW</span><h1 id="preview-title">时钟</h1></div>
+        <div class="stage-tools"><button class="edit-layout-button" id="edit-layout" aria-pressed="false">编辑布局</button><div class="segmented scale-control" aria-label="预览尺寸"><button data-size="large" class="selected" aria-pressed="true">放大</button><button data-size="physical" aria-pressed="false">实尺寸</button></div></div>
+      </div>
+      <div class="device-area" id="device-area">
+        <div class="dimension top-dimension"><span>约 35 mm</span></div>
+        <div class="device-shell" id="device-shell">
+          <div class="screen-viewport" id="screen-viewport">
+            <div class="device-screen" id="device-screen" tabindex="0" role="button" aria-label="屏幕：单击翻页，双击回首页，休眠时首次点击唤醒">
+              <div class="screen-content" id="screen-content"></div>
+            </div>
+          </div>
+          <button class="touch-key" id="touch-key" aria-label="模拟屏幕触摸按键"><span></span></button>
+        </div>
+        <div class="dimension side-dimension"><span>约 65 mm</span></div>
+      </div>
+      <div class="device-caption"><span class="state-dot" id="state-dot"></span><span id="display-state" aria-live="polite">正常显示</span><span class="caption-divider">·</span><span id="display-brightness">85%</span></div>
+      <div class="preview-navigation"><button id="previous-page" class="icon-button" aria-label="上一页">←</button><span id="page-counter">01 / 06</span><button id="next-page" class="icon-button" aria-label="下一页">→</button></div>
+      <p class="interaction-hint">单击翻页 · 双击回首页 · 休眠时首触唤醒</p>
+      <div class="calibration" id="calibration" hidden>
+        <div class="calibration-header"><span>尺寸校准</span><output id="calibration-value">100%</output></div>
+        <div class="calibration-ruler"><span>20 mm</span></div>
+        <input id="calibration-scale" aria-label="尺寸校准比例" type="range" min="60" max="200" value="100">
+        <p>用实体尺将上方标尺调至 20 mm。屏幕保持原生比例，尺寸为近似参照。</p>
+      </div>
+    </section>
+
+    <aside class="inspector" aria-label="预览设置">
+      <div class="inspector-tabs" role="tablist" aria-label="预览设置分类">
+        <button id="tab-widgets" role="tab" aria-selected="false" aria-controls="panel-widgets" data-panel="widgets" tabindex="-1">小组件</button>
+        <button id="tab-display" role="tab" aria-selected="true" aria-controls="panel-display" data-panel="display">显示</button>
+        <button id="tab-sleep" role="tab" aria-selected="false" aria-controls="panel-sleep" data-panel="sleep" tabindex="-1">休眠策略</button>
+      </div>
+
+      <section class="inspector-panel" id="panel-widgets" role="tabpanel" aria-labelledby="tab-widgets" hidden>
+        <div class="setting-section">
+          <div class="section-title"><h2>组合页面</h2><span>4 × 6</span></div>
+          <label class="field">页面名称<input id="page-name" type="text" maxlength="16" value="时钟"></label>
+          <label class="switch-row"><span>编辑模式</span><input type="checkbox" id="editing-mode" role="switch"></label>
+          <p class="field-note">点选小组件，拖动位置或右下角调整大小。也可使用下方位置与尺寸设置。</p>
+        </div>
+        <div class="setting-section">
+          <div class="section-title"><h2>添加小组件</h2><span>可组合</span></div>
+          <div class="widget-palette" id="widget-palette"></div>
+          <p id="layout-message" class="policy-message" role="status">现有页面也可以自由组合。</p>
+        </div>
+        <div class="setting-section" id="widget-properties-section">
+          <div class="section-title"><h2>组件设置</h2><button id="remove-widget" class="text-button">移除</button></div>
+          <div id="widget-properties"><p class="field-note">点选屏幕上的小组件进行设置。</p></div>
+        </div>
+        <div class="layout-actions"><button class="secondary-button" id="undo-layout" disabled>撤销调整</button><button class="secondary-button" id="remove-page">删除此页</button></div>
+      </section>
+
+      <section class="inspector-panel" id="panel-display" role="tabpanel" aria-labelledby="tab-display">
+        <label class="field">换页标识粗细<select id="page-rail-height"><option value="6">细 · 6 px</option><option value="12" selected>标准 · 12 px</option><option value="20">粗 · 20 px</option></select></label>
+        <div class="setting-section appearance-settings">
+          <div class="section-title"><h2>主题配色</h2><span id="theme-name">森绿</span></div>
+          <div class="theme-presets" id="theme-presets" aria-label="整组主题"></div>
+          <details class="appearance-details"><summary>调整主题组色</summary><div id="theme-colors" class="color-controls"></div><button id="reset-theme-colors" class="text-button">还原这组配色</button></details>
+        </div>
+        <div class="setting-section appearance-settings">
+          <div class="section-title"><h2>壁纸</h2><span>半透明组件</span></div>
+          <div class="wallpaper-presets" id="wallpaper-presets" aria-label="壁纸选择"></div>
+          <div class="wallpaper-upload"><label class="secondary-button" for="wallpaper-file">上传图片<input id="wallpaper-file" type="file" accept="image/png,image/jpeg,image/webp"></label><button id="remove-wallpaper" class="text-button" hidden>移除自选壁纸</button></div>
+          <p id="wallpaper-filename" class="field-note" hidden></p>
+          <div id="wallpaper-options" hidden>
+            <label class="range-label" for="card-opacity"><span>组件不透明度</span><output id="card-opacity-value">80%</output></label><input id="card-opacity" type="range" min="0" max="100" value="80">
+            <label class="range-label" for="wallpaper-dim"><span>壁纸遮罩</span><output id="wallpaper-dim-value">24%</output></label><input id="wallpaper-dim" type="range" min="0" max="70" value="24">
+          </div>
+          <p id="appearance-message" class="policy-message" role="status">配色与壁纸自动保存在此浏览器</p>
+        </div>
+        <div class="setting-section">
+          <div class="section-title"><h2>画面</h2><span>01</span></div>
+          <label class="field">数据状态<select id="data-state"><option value="normal">正常数据</option><option value="missing">无数据</option><option value="stale">数据过期</option><option value="extreme">大数值与长文本</option></select></label>
+          <label class="range-label" for="awake-brightness"><span>正常亮度</span><output id="awake-brightness-value">85%</output></label>
+          <input id="awake-brightness" type="range" min="1" max="100" value="85">
+          <label class="switch-row"><span>模拟亮度变化</span><input type="checkbox" id="simulate-brightness" role="switch" checked></label>
+          <p class="field-note">亮度为视觉模拟，不对应实机 PWM。</p>
+        </div>
+        <div class="setting-section">
+          <div class="section-title"><h2>图表</h2><span>02</span></div>
+          <label class="field">图表类型<select id="chart-type"><option value="line">折线</option><option value="multi">多曲线叠放</option><option value="dual">多曲线 · 双单位</option><option value="bar">柱状</option><option value="stacked-bar">堆叠柱状</option><option value="stacked-area">堆叠面积</option><option value="donut">环形</option></select></label>
+          <label class="field">时间范围<select id="chart-range"><option value="24">24 小时</option><option value="6">6 小时</option><option value="1">1 小时</option></select></label>
+          <p class="field-note" id="chart-description">查看 CO₂ 的变化。</p>
+        </div>
+        <div class="setting-section">
+          <div class="section-title"><h2>外部组件</h2><span>03</span></div>
+          <label class="field">展示内容<select id="external-type"><option value="value">数值</option><option value="text">文字</option><option value="chart">图表</option></select></label>
+        </div>
+        <button class="secondary-button wide" id="reset-preview">重置演示</button>
+      </section>
+
+      <section class="inspector-panel" id="panel-sleep" role="tabpanel" aria-labelledby="tab-sleep" hidden>
+        <div class="setting-section">
+          <div class="section-title"><h2>无操作休眠</h2><span>01</span></div>
+          <div class="two-fields"><label class="field">外接电源<select id="idle-external"><option value="0">永不</option><option value="1">1 分钟</option><option value="2">2 分钟</option><option value="5" selected>5 分钟</option><option value="10">10 分钟</option><option value="30">30 分钟</option><option value="custom">自定义</option></select></label><label class="field">电池供电<select id="idle-battery"><option value="0">永不</option><option value="1" selected>1 分钟</option><option value="2">2 分钟</option><option value="5">5 分钟</option><option value="10">10 分钟</option><option value="30">30 分钟</option><option value="custom">自定义</option></select></label></div>
+          <div class="two-fields"><label class="field" id="custom-external-field" hidden>外接等待（分钟）<input id="custom-external" type="number" min="1" max="1440" value="15"></label><label class="field" id="custom-battery-field" hidden>电池等待（分钟）<input id="custom-battery" type="number" min="1" max="1440" value="3"></label></div>
+          <div id="idle-display-fields"></div>
+        </div>
+        <div class="setting-section">
+          <div class="section-title"><h2>定时计划</h2><button id="add-plan" class="text-button">＋ 添加</button></div>
+          <p class="field-note before-field">从上到下优先匹配。跨午夜按开始当天计算星期。</p>
+          <div id="schedule-list"></div>
+        </div>
+        <p id="policy-message" class="policy-message" role="status">仅保存在此浏览器</p>
+        <button class="primary-button wide" id="save-policy">保存休眠设置</button>
+        <p class="field-note">触摸后临时恢复正常页面与亮度，闲置后再次休眠。等待设为“永不”时，计划内临时唤醒保持 1 分钟。</p>
+      </section>
+
+      <section class="simulation-panel" aria-label="时间与供电模拟">
+        <div class="section-title"><h2>模拟环境</h2><span class="simulation-badge">可快进</span></div>
+        <label class="field">设备时间 · UTC+8<input id="simulated-time" type="datetime-local" value="2026-11-06T18:42"></label>
+        <div class="simulation-actions"><button id="advance-minute">＋1 分钟</button><button id="advance-half-hour">＋30 分钟</button><button id="jump-night">到夜间</button></div>
+        <div class="two-fields"><label class="field">供电<select id="power-source"><option value="external">外接电源</option><option value="battery">电池</option></select></label><label class="field">模拟操作<button id="simulate-touch" class="secondary-button">触摸唤醒 / 翻页</button></label></div>
+        <div class="simulation-result" id="simulation-result" aria-live="polite">等待操作</div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="app-footer"><span>480 × 854 <i>·</i> 约 3.5 × 6.5 cm</span><span>交互设计原型 <i>·</i> 设置仅用于本地预览</span></footer>
+  <dialog id="info-dialog">
+    <div class="dialog-heading"><span class="eyebrow">DESIGN NOTES</span><button id="close-info" class="icon-button" aria-label="关闭设计规格">×</button></div>
+    <h2>让信息，一眼可读。</h2>
+    <p>大时钟优先，四项关键空气数据随时可见。移除口号和常驻说明，将屏幕空间交还给读数。</p>
+    <dl><div><dt>画布</dt><dd>480 × 854，竖屏</dd></div><div><dt>时钟</dt><dd>144 px</dd></div><div><dt>数值基础字号</dt><dd>96 px，随尺寸调整</dd></div><div><dt>数值标题 / 单位</dt><dd>34 / 24 px</dd></div><div><dt>页面边距 / 组件间距</dt><dd>16 / 8 px</dd></div><div><dt>组件区域</dt><dd>448 × 772 px</dd></div><div><dt>换页标识</dt><dd>顶边 6 px 半透明分段横条</dd></div></dl>
+    <p>时钟、数值、文字、图表、天气和提醒均可作为小组件自由组合。点击“编辑布局”，在网格内拖动或调整尺寸；组合页也可用作休眠页面。</p>
+    <p>方形数值组件等比放大，整行数值采用左侧标题与单位、右侧大数字；图表最小支持 2 行 × 4 列，左侧读数、右侧图形。布局自动保存在浏览器，休眠策略单独保存。</p>
+    <p>整组主题包含背景、标题、数值、单位、正文和图表配色。组件默认跟随主题，也可单独改色；壁纸上采用可调不透明度的卡片与半透明边缘。支持本地上传壁纸。</p>
+    <p class="field-note">这是使用固定演示数据的 Web 设计原型，布局尺寸与本次 LVGL 源码更新同步。需求记录见屏幕工程 docs/UI-REDESIGN-PLAN.md；尚未烧录设备。</p>
+  </dialog>
+  <noscript>请启用 JavaScript 以查看交互预览。</noscript>
+</body>
+</html>

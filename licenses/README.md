@@ -1,0 +1,1 @@
+Generated bitmap fonts derive from DejaVu Sans and Droid Sans Fallback. Their original license notices are included here and apply to the generated glyph data and resources/zh32.iotfnt. Application code: ../LICENSE. LVGL: MIT; cJSON: MIT; the separately obtained SWM341 SDK retains its vendor terms. See pinned sources in dependencies.lock.json and cjson.lock.json.
