@@ -37,7 +37,7 @@ unsigned power_tick(screen_power *p, bool f, bool r, bool pm9, bool dnd) {
     }
     if (p->front_count < UINT16_MAX)
       p->front_count++;
-    if (p->front_count > 91 && !p->front_long && !p->wake_only) {
+    if (p->front_count > 91 && !p->front_long) {
       p->front_long = true;
       event |= POWER_OFF;
     }

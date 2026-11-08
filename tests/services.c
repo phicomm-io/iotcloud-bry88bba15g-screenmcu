@@ -69,6 +69,16 @@ int main(void) {
     event = power_tick(&p, true, false, true, false);
   assert(p.front_long);
   assert(!(power_tick(&p, false, false, true, false) & POWER_PAGE));
+  /* A press that wakes a sleeping screen can continue into shutdown. */
+  for (unsigned extended = 0; extended < 2; extended++) {
+    p = (screen_power){.asleep = true, .extended = extended};
+    assert(power_tick(&p, true, false, true, false) & POWER_WAKE);
+    unsigned off = 0;
+    for (unsigned i = 0; i < 100; i++)
+      off += !!(power_tick(&p, true, false, true, false) & POWER_OFF);
+    assert(off == 1);
+    assert(!(power_tick(&p, false, false, true, false) & POWER_PAGE));
+  }
   p = (screen_power){.ota = true};
   for (unsigned i = 0; i < 100; i++)
     assert(!power_tick(&p, true, true, false, true));
