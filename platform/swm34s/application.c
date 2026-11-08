@@ -537,9 +537,26 @@ static void power_tick_board(void) {
     NVIC_SystemReset();
   if (event & POWER_OFF) {
     board_backlight(0);
+    GPIO_ClrBit(GPIOD, 12);
     GPIO_ClrBit(GPIOM, 7);
     recovery_latch(false);
-    NVIC_SystemReset();
+    /* Resetting with PD11 still held immediately reasserts PM7 at startup.
+     * Let the original power latch drop the supply after the key is released.
+     * If USB keeps the MCU powered, require a fresh two-second press to boot.
+     * Keep feeding the watchdog so shutdown cannot turn into an 8 s restart. */
+    while (!GPIO_GetBit(GPIOD, 11)) {
+      board_watchdog_feed();
+      __WFI();
+    }
+    uint32_t released_at = board_ms;
+    for (;;) {
+      if (GPIO_GetBit(GPIOD, 11))
+        released_at = board_ms;
+      else if ((uint32_t)(board_ms - released_at) >= 2000)
+        NVIC_SystemReset();
+      board_watchdog_feed();
+      __WFI();
+    }
   }
   if (extended) {
     uint8_t pages = 0;
