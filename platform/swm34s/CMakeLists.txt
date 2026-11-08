@@ -21,8 +21,11 @@ if(VERSION_ERROR)
 endif()
 set(CSL ${SWM_SDK_DIR}/SWM341_StdPeriph_Driver/CSL)
 file(READ ${CSL}/CMSIS/DeviceSupport/system_SWM341.c SYSTEM_SOURCE)
-# Bound a missing crystal/PLL. UART recovery remains usable at the HRC clock.
-string(REPLACE "while(SYS->PLLLOCK == 0);" "for(volatile unsigned budget=2000000; !SYS->PLLLOCK && budget; --budget) { __NOP(); } if(!SYS->PLLLOCK) { return; }" SYSTEM_SOURCE "${SYSTEM_SOURCE}")
+# The factory loader leaves PLL output enabled. Stop it before changing its
+# dividers, allow the crystal to settle, and require the manual's two lock reads.
+# A missing crystal/PLL still leaves UART recovery usable at the HRC clock.
+string(REPLACE "\tSYS->PLLDIV &=" "\tdelay_3ms();\n\tSYS->PLLCR = (SYS->PLLCR | SYS_PLLCR_OFF_Msk) & ~SYS_PLLCR_OUTEN_Msk;\n\tSYS->PLLDIV &=" SYSTEM_SOURCE "${SYSTEM_SOURCE}")
+string(REPLACE "while(SYS->PLLLOCK == 0);" "unsigned locked=0; for(volatile unsigned budget=2000000; budget && locked<2; --budget) { locked=SYS->PLLLOCK ? locked+1 : 0; } if(locked<2) { return; }" SYSTEM_SOURCE "${SYSTEM_SOURCE}")
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/system_SWM341.c "${SYSTEM_SOURCE}")
 set(DRIVERS)
 foreach(name port gpio uart lcd pwm adc flash timr)
