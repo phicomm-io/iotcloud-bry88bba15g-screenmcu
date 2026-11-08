@@ -45,6 +45,8 @@ static screen_guard guard IRAM;
 static uint32_t guard_announce_at IRAM;
 static bool normal_ready IRAM;
 static bool panel_ready IRAM;
+static screen_power recovery_power IRAM;
+static uint32_t recovery_input_at IRAM;
 static char running_md5[33] IRAM;
 static const screen_boot_control boot_control = {
     .read = board_nor_read, .erase = board_flag_erase, .write = board_flag_write};
@@ -67,6 +69,29 @@ static void recovery_latch(bool held) {
   fault_latch_check = held ? ~0x52454356u : 0;
   fault_latch = held ? 0x52454356u : 0;
   __DSB();
+}
+static void power_off(void) {
+  if (panel_ready) board_backlight(0);
+  GPIO_ClrBit(GPIOD, 12);
+  GPIO_ClrBit(GPIOM, 7);
+  recovery_latch(false);
+  /* Resetting with PD11 still held immediately reasserts PM7 at startup.
+   * Let the original power latch drop the supply after the key is released.
+   * If USB keeps the MCU powered, require a fresh two-second press to boot.
+   * Keep feeding the watchdog so shutdown cannot turn into an 8 s restart. */
+  while (!GPIO_GetBit(GPIOD, 11)) {
+    board_watchdog_feed();
+    __WFI();
+  }
+  uint32_t released_at = board_ms;
+  for (;;) {
+    if (GPIO_GetBit(GPIOD, 11))
+      released_at = board_ms;
+    else if ((uint32_t)(board_ms - released_at) >= 2000)
+      NVIC_SystemReset();
+    board_watchdog_feed();
+    __WFI();
+  }
 }
 static uint8_t resource_cache[SCREEN_RESOURCE_LIMIT];
 static uint16_t wallpaper_cache[480*854];
@@ -243,6 +268,15 @@ static void pump(void) {
     maintenance_feed(&maintenance, c, board_ms);
   }
   maintenance_tick(&maintenance, board_ms);
+  /* The recovery service runs without SDRAM or the normal key owner. Keep
+   * long-press shutdown available, but ignore presses during a transfer. */
+  if (!normal_ready && (uint32_t)(board_ms - recovery_input_at) >= 33) {
+    recovery_input_at = board_ms;
+    recovery_power.ota = maintenance.state != 0;
+    if (power_tick(&recovery_power, !GPIO_GetBit(GPIOD, 11), false,
+                   GPIO_GetBit(GPIOM, 9) != 0, false) & POWER_OFF)
+      power_off();
+  }
   if ((int32_t)(board_ms - guard_announce_at) >= 0) {
     char notice[192];
     unsigned mode = normal_ready ? 0 : guard.forced ? 3 : guard.held ? 2 : 1;
@@ -536,27 +570,7 @@ static void power_tick_board(void) {
   if (event & POWER_RESET)
     NVIC_SystemReset();
   if (event & POWER_OFF) {
-    board_backlight(0);
-    GPIO_ClrBit(GPIOD, 12);
-    GPIO_ClrBit(GPIOM, 7);
-    recovery_latch(false);
-    /* Resetting with PD11 still held immediately reasserts PM7 at startup.
-     * Let the original power latch drop the supply after the key is released.
-     * If USB keeps the MCU powered, require a fresh two-second press to boot.
-     * Keep feeding the watchdog so shutdown cannot turn into an 8 s restart. */
-    while (!GPIO_GetBit(GPIOD, 11)) {
-      board_watchdog_feed();
-      __WFI();
-    }
-    uint32_t released_at = board_ms;
-    for (;;) {
-      if (GPIO_GetBit(GPIOD, 11))
-        released_at = board_ms;
-      else if ((uint32_t)(board_ms - released_at) >= 2000)
-        NVIC_SystemReset();
-      board_watchdog_feed();
-      __WFI();
-    }
+    power_off();
   }
   if (extended) {
     uint8_t pages = 0;
@@ -595,6 +609,8 @@ void screen_start(void) {
     fault_record[i] = 0;
   stage(STAGE_EARLY);
   board_early();
+  recovery_power.front = !GPIO_GetBit(GPIOD, 11);
+  recovery_power.front_long = recovery_power.front;
   board_nor_init();
   maintenance_setup();
   bool forced = latched_fault ||
