@@ -491,6 +491,8 @@ static void sensors_tick(uint32_t now) {
   }
 }
 static void power_tick_board(void) {
+  /* Stock PM9 is high on external power; low selects battery operation. */
+  runtime.model.charging = GPIO_GetBit(GPIOM, 9) != 0;
   unsigned start = factory.settings[20] | factory.settings[21] << 8,
            end = factory.settings[22] | factory.settings[23] << 8;
   runtime.model.dnd =
@@ -518,13 +520,13 @@ static void power_tick_board(void) {
       if (runtime.model.scene.page[i].enabled) pages |= 1u << i;
     display_step(&runtime.display, board_ms,
                   runtime.model.clock_valid ? runtime.clock_epoch : 0,
-                  runtime.timezone, GPIO_GetBit(GPIOM, 9), power.brightness,
+                  runtime.timezone, !runtime.model.charging, power.brightness,
                   pages, &runtime.model.page, false, false, power.ota);
     power.asleep = runtime.display.sleeping;
   }
   unsigned event =
       power_tick(&power, !GPIO_GetBit(GPIOD, 11), !GPIO_GetBit(GPIOD, 13),
-                 GPIO_GetBit(GPIOM, 9), runtime.model.dnd);
+                 runtime.model.charging, runtime.model.dnd);
   if (event & POWER_PAGE)
     screen_event(&runtime.model, 1);
   if (event & POWER_PROVISION)
@@ -545,7 +547,7 @@ static void power_tick_board(void) {
       if (runtime.model.scene.page[i].enabled) pages |= 1u << i;
     display_step(&runtime.display, board_ms,
                   runtime.model.clock_valid ? runtime.clock_epoch : 0,
-                  runtime.timezone, GPIO_GetBit(GPIOM, 9), power.brightness,
+                  runtime.timezone, !runtime.model.charging, power.brightness,
                   pages, &runtime.model.page, (event & POWER_WAKE) || reminder,
                   activity, power.ota);
     if (reminder) runtime.model.page = reminder_page;

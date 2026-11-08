@@ -30,11 +30,12 @@ const state = {
   externalType: 'value', simulateBrightness: true, size: 'large', calibration: 1,
 };
 let clickTimer, dirty = false, lastDisplay;
-const svg = (body, extra = '') => `<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${body}</svg>`;
+const svg = (body, extra = '', viewBox = '0 0 48 48') => `<svg viewBox="${viewBox}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${body}</svg>`;
 const icons = {
-  wifi: svg('<path d="M6 18c10-9 26-9 36 0M12 25c7-6 17-6 24 0M19 32c3-2 7-2 10 0"/><circle cx="24" cy="39" r="1.8" fill="currentColor" stroke="none"/>'),
-  offline: svg('<path d="M6 18c10-9 26-9 36 0M12 25c7-6 17-6 24 0M7 7l34 34"/><circle cx="24" cy="39" r="1.8" fill="currentColor" stroke="none"/>'),
-  battery: svg('<rect x="4" y="13" width="35" height="22" rx="4"/><path d="M43 20v8"/><rect x="9" y="18" width="24" height="12" rx="1" fill="currentColor" stroke="none"/>', 'class="battery"'),
+  wifi: svg('<path d="M1.86 12.86a20 20 0 0 1 28.28 0M6.1 17.1a14 14 0 0 1 19.8 0M10.34 21.34a8 8 0 0 1 11.32 0"/><circle cx="16" cy="27" r="1.5" fill="currentColor" stroke="none"/>', 'class="network"', '0 0 32 32'),
+  offline: svg('<path d="M1.86 12.86a20 20 0 0 1 28.28 0M6.1 17.1a14 14 0 0 1 19.8 0M10.34 21.34a8 8 0 0 1 11.32 0"/><circle cx="16" cy="27" r="1.5" fill="currentColor" stroke="none"/><path d="m3 4 26 25" stroke-width="2"/>', 'class="network offline"', '0 0 32 32'),
+  battery: svg('<rect y="2" width="72" height="27" rx="5" fill="var(--screen-line)"/><rect x="3" y="5" width="51" height="21" rx="2" fill="var(--chart-a)"/><rect x="73" y="9" width="5" height="13" rx="1" fill="var(--screen-line)"/>', 'class="battery"', '0 0 78 32'),
+  charging: svg('<rect y="2" width="72" height="27" rx="5" fill="var(--screen-line)"/><rect x="3" y="5" width="51" height="21" rx="2" fill="var(--chart-a)"/><rect x="73" y="9" width="5" height="13" rx="1" fill="var(--screen-line)"/><rect x="27" y="5" width="18" height="21" rx="2" fill="var(--screen-line)"/><path d="m38 7-6 9 7-2-6 9" fill="none" stroke="var(--screen-fg)" stroke-width="3"/>', 'class="battery" data-charging="true"', '0 0 78 32'),
   sun: svg('<circle cx="24" cy="24" r="9"/><path d="M24 3v5m0 32v5M3 24h5m32 0h5M9 9l4 4m22 22 4 4M9 39l4-4M35 13l4-4"/>'),
   cloud: svg('<path d="M13 36a9 9 0 1 1 1-18 12 12 0 0 1 23-1 10 10 0 0 1-1 19Z"/>'),
   partly: svg('<circle cx="17" cy="16" r="8"/><path d="M17 2v3M3 16h3M6 5l3 3m17-3-3 3M15 38a7 7 0 0 1-1-14 10 10 0 0 1 19-2 8 8 0 0 1 2 16Z"/>'),
@@ -50,7 +51,7 @@ function values() {
 }
 function statusRow(page) {
   const title = page.widgets.some(widget => widget.type === 'clock' && widget.y === 0) ? '' : page.title;
-  return `<div class="screen-top"><span class="screen-page-title">${esc(title)}</span>${state.dataState === 'stale' ? '<span class="data-note">已过期</span>' : ''}<span class="screen-icons">${lastDisplay?.sleeping ? icons.moon : ''}${state.dataState === 'missing' ? icons.offline : icons.wifi}${icons.battery}</span></div>`;
+  return `<div class="screen-top"><span class="screen-page-title">${esc(title)}</span>${state.dataState === 'stale' ? '<span class="data-note">已过期</span>' : ''}<span class="screen-icons">${lastDisplay?.sleeping ? icons.moon : ''}${state.dataState === 'missing' ? icons.offline : icons.wifi}${state.supply === 'external' ? icons.charging : icons.battery}</span></div>`;
 }
 function pageRail(page) { return `<div class="screen-page-rail" role="img" aria-label="第 ${pages.findIndex(p => p.id === page) + 1} 页，共 ${pages.length} 页">${pages.map(p => `<i data-page-segment="${p.id}"${p.id === page ? ' class="active"' : ''}></i>`).join('')}</div>`; }
 function widgetContents(widget, index) {

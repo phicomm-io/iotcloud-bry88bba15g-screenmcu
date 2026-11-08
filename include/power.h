@@ -18,7 +18,7 @@ typedef struct {
   bool dnd, extended;
   unsigned brightness;
 } screen_power;
-/* Original UI cadence: 33 ms. Active low PD11/PD13, PM9 selects timeout.
+/* Original UI cadence: 33 ms. Active low PD11/PD13, PM9 high = external power.
  * OTA wins over sleep, poweroff and reset. No factory reset gesture. */
 unsigned power_tick(screen_power *, bool front_down, bool rear_down,
                     bool pm9_high, bool in_dnd);

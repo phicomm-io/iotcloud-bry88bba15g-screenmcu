@@ -84,6 +84,19 @@ async function main() {
     });
     assert.deepEqual(geometry, [16, 66, 448, 772]);
     check('LVGL-aligned 16px margins, 8px grid gaps and full-width selectable translucent top page rail');
+    assert.equal(await page.locator('.screen-icons .network:not(.offline)').count(), 1);
+    assert.equal(await page.locator('.screen-icons [data-charging]').count(), 1);
+    await screenShot('status-charging');
+    await page.selectOption('#power-source', 'battery');
+    assert.equal(await page.locator('.screen-icons [data-charging]').count(), 0);
+    await screenShot('status-battery');
+    await page.selectOption('#data-state', 'missing');
+    assert.equal(await page.locator('.screen-icons .network.offline').count(), 1);
+    await screenShot('status-offline');
+    await page.selectOption('#data-state', 'normal');
+    await page.selectOption('#power-source', 'external');
+    assert.equal(await page.locator('.screen-icons [data-charging]').count(), 1);
+    check('Wi-Fi and offline icons plus charging indicator follow the simulated supply');
 
     await page.click('#tab-display');
     for (const height of [6, 12, 20]) {

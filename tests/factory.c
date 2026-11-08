@@ -74,8 +74,16 @@ int main(void) {
          cJSON_GetObjectItem(status, "temp")->valuedouble < 236.1);
   assert(cJSON_GetObjectItem(status, "humidity")->valueint == 47);
   assert(cJSON_GetObjectItem(status, "hcho_status")->valueint == 0x59);
+  assert(cJSON_IsFalse(cJSON_GetObjectItem(status, "charging")));
   assert(!strcmp(cJSON_GetObjectItem(physics, "esp32_version")->valuestring,
                  "stock-ESP"));
+  cJSON_Delete(doc);
+  r.model.charging = true;
+  used = 0;
+  factory_snapshot(&f, "charging-token", true);
+  doc = body();
+  assert(cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(
+      cJSON_GetObjectItem(doc, "data"), "status"), "charging")));
   cJSON_Delete(doc);
   service(&f, "set",
           "{\"client_token\":\"save\",\"data\":{\"display\":{\"luminance\":70,"

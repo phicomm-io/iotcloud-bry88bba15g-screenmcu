@@ -76,6 +76,15 @@ int main(void) {
   p.ota = false;
   assert(!(power_tick(&p, false, false, true, false) &
            (POWER_PAGE | POWER_PROVISION)));
+  /* PM9 high is external power, so each supply selects its own timeout. */
+  for (unsigned external = 0; external < 2; external++) {
+    p = (screen_power){.idle = 0x71a, .power_timeout = external ? 1 : 0,
+                      .battery_timeout = external ? 0 : 1};
+    assert(power_tick(&p, false, false, external, false) & POWER_SLEEP);
+    p = (screen_power){.idle = 0x71a, .power_timeout = external ? 0 : 1,
+                      .battery_timeout = external ? 1 : 0};
+    assert(!(power_tick(&p, false, false, external, false) & POWER_SLEEP));
+  }
   assert(power_in_dnd(23 * 60, 22 * 60, 8 * 60, true));
   assert(power_in_dnd(7 * 60, 22 * 60, 8 * 60, true));
   assert(!power_in_dnd(12 * 60, 22 * 60, 8 * 60, true));

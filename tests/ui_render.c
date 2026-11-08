@@ -194,6 +194,32 @@ static void compact_widgets(void) {
  const char *dir=getenv("SCREEN_UI_EVIDENCE");
  if(dir){char path[1024];uint8_t bytes[SCENE_BYTES];assert(scene_encode(&model.scene,bytes));snprintf(path,sizeof(path),"%s/compact-widgets.bin",dir);FILE *f=fopen(path,"wb");assert(f);assert(fwrite(bytes,1,sizeof(bytes),f)==sizeof(bytes));fclose(f);}
 }
+static void status_icons(void) {
+ scene(SC_VALUE,4,6);model.network=true;model.battery_valid=true;model.battery_percent=78;
+ assert(screen_ui(&model,120000,false));draw();artifact("status-battery");
+ lv_obj_t *retained=card();unsigned children=lv_obj_get_child_cnt(lv_scr_act());
+ memcpy(image,frame,sizeof(frame));
+ model.charging=true;assert(screen_ui(&model,120000,false));draw();artifact("status-charging");
+ assert(memcmp(image,frame,SCREEN_WIDTH*UI_GRID_TOP*sizeof(*frame)));
+ assert(!memcmp(image+SCREEN_WIDTH*UI_GRID_TOP,frame+SCREEN_WIDTH*UI_GRID_TOP,
+                sizeof(frame)-SCREEN_WIDTH*UI_GRID_TOP*sizeof(*frame)));
+ assert(card()==retained&&lv_obj_get_child_cnt(lv_scr_act())==children);
+ assert(!screen_ui(&model,120001,false));
+ model.charging=false;assert(screen_ui(&model,120001,false));draw();
+ assert(!memcmp(image,frame,sizeof(frame))); /* Unplugging removes every bolt pixel. */
+ model.network=false;assert(screen_ui(&model,120001,false));draw();artifact("status-offline");
+ assert(memcmp(image,frame,SCREEN_WIDTH*UI_GRID_TOP*sizeof(*frame)));
+ assert(!memcmp(image+SCREEN_WIDTH*UI_GRID_TOP,frame+SCREEN_WIDTH*UI_GRID_TOP,
+                sizeof(frame)-SCREEN_WIDTH*UI_GRID_TOP*sizeof(*frame)));
+ model.network=true;assert(screen_ui(&model,120001,false));draw();assert(!memcmp(image,frame,sizeof(frame)));
+ model.charging=true;
+ for(unsigned percent=0;percent<=100;percent+=100) {
+  model.battery_percent=percent;assert(screen_ui(&model,120001,false));draw();
+  artifact(percent?"status-charging-full":"status-charging-empty");
+ }
+ model.battery_valid=false;assert(screen_ui(&model,120001,false));draw();artifact("status-charging-unknown");
+ assert(card()==retained&&lv_obj_get_child_cnt(lv_scr_act())==children);
+}
 int main(void) {
  const char *bank=getenv("SCREEN_TEST_FONT");
  if(bank){
@@ -206,7 +232,7 @@ int main(void) {
  lv_disp_draw_buf_init(&buffer,pixels,NULL,SCREEN_WIDTH*16);
  lv_disp_drv_init(&display);display.hor_res=SCREEN_WIDTH;display.ver_res=SCREEN_HEIGHT;
  display.draw_buf=&buffer;display.flush_cb=flush;lv_disp_drv_register(&display);
- screen_init(&model);model.battery_valid=true;model.battery_percent=78;
+ screen_init(&model);status_icons();screen_init(&model);model.battery_valid=true;model.battery_percent=78;
  compact_layout();screen_init(&model);model.battery_valid=true;model.battery_percent=78;
  scene(SC_VALUE,2,2);screen_sample_set(&model,MET_CO2,628,true,120000);
  assert(screen_ui(&model,120000,false));draw();inside(card());

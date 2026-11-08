@@ -583,12 +583,36 @@ static uint64_t content_hash(const screen_model *m,const scene_item *it,uint32_t
 #undef HASH
   return hash;
 }
+static void draw_network(lv_event_t *e) {
+  bool online=*(const bool *)lv_event_get_user_data(e);
+  lv_area_t a;lv_obj_get_coords(lv_event_get_target(e),&a);
+  lv_draw_ctx_t *ctx=lv_event_get_draw_ctx(e);
+  lv_draw_arc_dsc_t arc;lv_draw_arc_dsc_init(&arc);
+  arc.color=lv_color_hex(online?colors[0]:MUTED);arc.width=3;arc.rounded=1;
+  lv_point_t center={a.x1+16,a.y1+27};
+  for(unsigned radius=8;radius<=20;radius+=6)lv_draw_arc(ctx,&arc,&center,radius,225,315);
+  lv_draw_rect_dsc_t dot;lv_draw_rect_dsc_init(&dot);
+  dot.bg_color=arc.color;dot.radius=LV_RADIUS_CIRCLE;
+  lv_area_t point={center.x-1,center.y-1,center.x+1,center.y+1};lv_draw_rect(ctx,&dot,&point);
+  if(!online) {
+    lv_draw_line_dsc_t line;lv_draw_line_dsc_init(&line);
+    line.color=arc.color;line.width=2;line.round_start=line.round_end=1;
+    lv_point_t from={a.x1+3,a.y1+4},to={a.x1+29,a.y1+29};lv_draw_line(ctx,&line,&from,&to);
+  }
+}
+static void draw_charging(lv_event_t *e) {
+  lv_area_t a;lv_obj_get_coords(lv_event_get_target(e),&a);
+  lv_draw_line_dsc_t line;lv_draw_line_dsc_init(&line);
+  line.color=lv_color_hex(INK);line.width=3;line.round_start=line.round_end=1;
+  lv_point_t points[]={{a.x1+11,a.y1+2},{a.x1+5,a.y1+11},{a.x1+12,a.y1+9},{a.x1+6,a.y1+18}};
+  for(unsigned i=1;i<4;i++)lv_draw_line(lv_event_get_draw_ctx(e),&line,&points[i-1],&points[i]);
+}
 bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   english=m->appearance.language==1;
   (void)demo;static uint64_t previous;static bool have;
   static struct {lv_obj_t *card;uint64_t content;} visible[8];
-  static lv_obj_t *network,*battery_fill;
-  static bool network_on,battery_valid;
+  static lv_obj_t *network,*battery_fill,*charging;
+  static bool network_on,battery_valid,battery_charging;
   static unsigned battery_percent;
   lv_obj_t *root=lv_scr_act();
   if(m->asleep&&!m->ota)return false;
@@ -614,13 +638,23 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   int title_y=appearance_rail_height(appearance)+2;
   if(title_y<UI_MARGIN)title_y=UI_MARGIN;
   if(!has_clock)label(root,UI_MARGIN,title_y,314,UI_HEADER_HEIGHT,m->scene.page[page].title,&zh32,MUTED);
-  network=box(root,SCREEN_WIDTH-UI_MARGIN-118,UI_MARGIN+13,12,12,m->network?colors[0]:MUTED,6);
+  network=box(root,SCREEN_WIDTH-UI_MARGIN-128,UI_MARGIN+2,32,32,BG,0);
+  lv_obj_set_style_bg_opa(network,LV_OPA_TRANSP,0);
+  lv_obj_add_event_cb(network,draw_network,LV_EVENT_DRAW_MAIN,&network_on);
   lv_obj_t *battery=box(root,SCREEN_WIDTH-UI_MARGIN-78,UI_MARGIN+6,72,27,GRID,5);
   battery_fill=box(battery,3,3,1,21,colors[0],2);
+  charging=box(battery,27,3,18,21,GRID,2);
+  lv_obj_add_event_cb(charging,draw_charging,LV_EVENT_DRAW_MAIN,NULL);
   box(root,SCREEN_WIDTH-UI_MARGIN-5,UI_MARGIN+13,5,13,GRID,1);
   }
   if(rebuild||network_on!=m->network) {
-    network_on=m->network;lv_obj_set_style_bg_color(network,lv_color_hex(network_on?colors[0]:MUTED),0);changed=true;
+    network_on=m->network;lv_obj_invalidate(network);changed=true;
+  }
+  if(rebuild||battery_charging!=m->charging) {
+    battery_charging=m->charging;
+    if(battery_charging)lv_obj_clear_flag(charging,LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(charging,LV_OBJ_FLAG_HIDDEN);
+    changed=true;
   }
   if(rebuild||battery_valid!=m->battery_valid||battery_percent!=m->battery_percent) {
     battery_valid=m->battery_valid;battery_percent=m->battery_percent;

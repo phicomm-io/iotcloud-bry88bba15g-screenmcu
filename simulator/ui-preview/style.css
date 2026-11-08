@@ -221,9 +221,11 @@ dialog dd { margin: 0; }
 .screen-page { position: absolute; inset: 0; padding: var(--screen-margin); display: flex; flex-direction: column; overflow: hidden; font-family: "Arial", "PingFang SC", "Microsoft YaHei", "Droid Sans Fallback", sans-serif; }
 .screen-top { display: flex; align-items: center; justify-content: space-between; height: var(--header-height); gap: 12px; color: var(--screen-muted); font-size: var(--font-label); flex-shrink: 0; }
 .screen-page-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; transform: translateY(var(--page-title-offset,0px)); }
-.screen-top .screen-icons { display: flex; align-items: center; gap: 16px; margin-left: auto; flex-shrink: 0; }
-.screen-top svg { width: 30px; height: 30px; }
-.screen-top .battery { width: 36px; }
+.screen-top .screen-icons { display: flex; align-items: center; gap: 18px; margin-left: auto; flex-shrink: 0; }
+.screen-top svg { width: 32px; height: 32px; }
+.screen-top .network { color: var(--chart-a); stroke-width: 3; }
+.screen-top .network.offline { color: var(--screen-muted); }
+.screen-top .battery { width: 78px; stroke: none; }
 .metric-value { font-size: var(--font-metric); font-weight: 400; font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: 12px; letter-spacing: -2px; white-space: nowrap; }
 .metric-unit { font-size: var(--font-unit); margin-top: 6px; line-height: 1.2; color: var(--screen-muted); }
 .metric-value.accent { color: var(--screen-accent); }

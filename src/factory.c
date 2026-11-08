@@ -164,6 +164,7 @@ void factory_snapshot(factory_owner *f, const char *token, bool response) {
   cJSON_AddNumberToObject(s, "tvoc_level", m->tvoc_level);
   cJSON_AddNumberToObject(s, "battery_status", m->battery_valid ? 0x51 : 0x52);
   cJSON_AddNumberToObject(s, "battery", m->battery_percent);
+  cJSON_AddBoolToObject(s, "charging", m->charging);
   cJSON_AddBoolToObject(s, "power_state", !f->power->asleep);
   cJSON *display = object(cfg, "display");
   cJSON_AddNumberToObject(display, "luminance", f->settings[16]);

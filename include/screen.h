@@ -38,7 +38,7 @@ typedef struct {
   bool asleep, clock_valid, network;
   unsigned hour, minute, battery_percent;
   uint32_t local_day;
-  bool battery_valid;
+  bool battery_valid, charging;
   uint32_t last_minute, record_at;
   bool have_minute;
 } screen_model;

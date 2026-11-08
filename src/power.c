@@ -69,7 +69,7 @@ unsigned power_tick(screen_power *p, bool f, bool r, bool pm9, bool dnd) {
     if (p->idle < UINT32_MAX)
       p->idle++;
     p->dnd_idle = dnd ? p->dnd_idle + 1 : 0;
-    unsigned timeout = pm9 ? p->battery_timeout : p->power_timeout;
+    unsigned timeout = pm9 ? p->power_timeout : p->battery_timeout;
     if ((timeout && p->idle > timeout * 0x71au) ||
         (dnd && p->dnd_idle > 0x38cu)) {
       p->asleep = true;
