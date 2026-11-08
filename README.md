@@ -10,7 +10,7 @@ BRY88BBA15G 的独立 SWM34SVET6-50 应用，480 × 854 RGB565，LVGL 8.3.11。
 - 完整中文字库、壁纸位于可选外部 NOR；限时校验后缓存到 SDRAM，资源错误降级为内置字体与纯色背景，继续提供通信及升级。
 - 应用位于 `0x14000`，长度 421888 字节。安装检查应用、NOR 暂存、回读及复制尾区；不要求引导备份或引导 MD5 白名单，不修改原厂引导区。
 
-[屏幕交互演示](https://phicomm-io.github.io/dakin_lvgl/) · [WebUI 演示](https://phicomm-io.github.io/demos/daikin-g3/) · [设计要求](docs/UI-REDESIGN-PLAN.md) · [串口恢复与 WDT](docs/RECOVERY-WDT.md)
+[屏幕交互演示](https://phicomm-io.github.io/dakin_lvgl/) · [WebUI 演示](https://phicomm-io.github.io/demos/daikin-g3/) · [设计要求](docs/UI-REDESIGN-PLAN.md) · [串口恢复与 WDT](docs/RECOVERY-WDT.md) · [电源管理](docs/POWER-MANAGEMENT.md)
 
 ## 构建
 

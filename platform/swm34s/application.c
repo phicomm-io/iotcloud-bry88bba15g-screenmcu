@@ -73,6 +73,7 @@ static void recovery_latch(bool held) {
 static void power_off(void) {
   if (panel_ready) board_backlight(0);
   GPIO_ClrBit(GPIOD, 12);
+  GPIO_ClrBit(GPIOA, 5);
   GPIO_ClrBit(GPIOM, 7);
   recovery_latch(false);
   /* Resetting with PD11 still held immediately reasserts PM7 at startup.
@@ -309,6 +310,7 @@ void board_recovery(void) {
   for (;;) {
     pump();
     board_watchdog_feed();
+    board_idle();
   }
 }
 static void flush(lv_disp_drv_t *d, const lv_area_t *a, lv_color_t *p) {
@@ -651,6 +653,7 @@ void screen_start(void) {
   while (guard_waiting(&guard, board_ms, maintenance.state != 0)) {
     pump();
     board_watchdog_feed();
+    board_idle();
   }
   /* Let the ESP select a diagnostic bus before the first NOR access. */
   if (!screen_boot_ack(&boot_control))
@@ -721,6 +724,7 @@ void screen_start(void) {
   while (maintenance.state || guard.held) {
     pump();
     board_watchdog_feed();
+    board_idle();
   }
   stage(STAGE_SENSORS);
   board_sensor_init();
@@ -778,7 +782,10 @@ void screen_start(void) {
                                       runtime.model.samples[MET_TVOC].value);
     }
     if ((int32_t)(now - next_status) >= 0) {
-      next_status = now + 1000;
+      /* Leave an idle gap after the stock one-second ESP wake tail; module
+       * status remains younger than the ESP's five-second freshness limit.
+       * Page changes and command responses still report immediately. */
+      next_status = now + 2000;
       if (!maintenance.state){screen_runtime_module_report(&runtime);screen_runtime_page_report(&runtime,0,0);}
       if (!maintenance.state && (runtime.caps.capabilities & SCREEN_CAP_SCENE_V3) && runtime.caps.ready) {
         bool font_ready=screen_font_resources.state==RESOURCE_READY;
@@ -841,5 +848,6 @@ void screen_start(void) {
     control_check();
     stage(STAGE_NORMAL);
     board_watchdog_feed();
+    board_idle();
   }
 }

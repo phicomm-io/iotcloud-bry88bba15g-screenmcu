@@ -30,6 +30,7 @@ unsigned board_backlight_percent(void);
 bool board_send(void *, const char *, size_t);
 int board_receive(void);
 void board_delay(unsigned);
+void board_idle(void);
 void board_recovery(void) __attribute__((noreturn));
 void board_nor_init(void);
 bool board_nor_mode(void *, unsigned);

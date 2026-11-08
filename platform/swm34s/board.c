@@ -114,6 +114,7 @@ void board_sensor_flush(void) {
   __set_PRIMASK(mask);
 }
 static volatile bool lvgl_tick_active IRAM;
+static uint32_t esp_wake_at IRAM;
 void board_lvgl_tick_stop(void){lvgl_tick_active=false;__DMB();}
 void board_lvgl_tick_start(void){
   uint32_t mask=__get_PRIMASK();__disable_irq();
@@ -121,10 +122,31 @@ void board_lvgl_tick_start(void){
   __set_PRIMASK(mask);
 }
 void SysTick_Handler(void) { board_ms++;if(lvgl_tick_active)lv_tick_inc(1); }
+void board_idle(void) {
+  /* Stock wifi task releases PA5 after its one-second communication tail.
+   * Keep the line high until the UART FIFO has physically finished as well. */
+  if ((uint32_t)(board_ms - esp_wake_at) >= 1000 &&
+      !UART_IsTXBusy(UART0))
+    GPIO_ClrBit(GPIOA, 5);
+  uint32_t mask = __get_PRIMASK();
+  __disable_irq();
+  bool pending = overflow || read_at != write_at;
+  for (unsigned i = 0; i < 3; i++)
+    pending |= sensor_queues[i].overflow ||
+               sensor_queues[i].read != sensor_queues[i].write;
+  /* CPU sleep only: LCD scanout, SDRAM refresh and UART clocks keep running.
+   * An IRQ arriving after the queue check remains pending and wakes WFI. */
+  if (!pending) {
+    __DSB();
+    __WFI();
+    __ISB();
+  }
+  __set_PRIMASK(mask);
+}
 void board_delay(unsigned ms) {
   uint32_t start = board_ms;
   while ((uint32_t)(board_ms - start) < ms)
-    __NOP();
+    board_idle();
 }
 static void us(unsigned n) {
   for (volatile unsigned i = 0; i < n * (CyclesPerUs / 4 + 1); i++)
@@ -147,6 +169,7 @@ void board_early(void) {
   }
   SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk | SCB_ICSR_PENDSVCLR_Msk;
   SCB->VTOR = 0x14000;
+  SCB->SCR &= ~(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk);
   __DSB();
   __ISB();
   watchdog_handoff();
@@ -178,6 +201,7 @@ void board_early(void) {
   GPIO_INIT(GPIOM, 7, GPIO_OUTPUT);
   GPIO_INIT(GPIOA, 5, GPIO_OUTPUT);
   GPIO_SetBit(GPIOA, 5);
+  esp_wake_at = board_ms;
 }
 static volatile uint32_t nonce_fallback __attribute__((section(".noinit")));
 uint32_t board_nonce(void *context) {
@@ -225,14 +249,25 @@ int board_receive(void) {
 }
 bool board_send(void *ctx, const char *s, size_t n) {
   (void)ctx;
+  if (!n) return true;
+  esp_wake_at = board_ms;
+  if (!GPIO_GetBit(GPIOA, 5)) {
+    GPIO_SetBit(GPIOA, 5);
+    /* Factory ESP32 polls GPIO2 every 30 ms. Assert wake before the first
+     * start bit so it can restore APB and leave automatic light sleep. */
+    board_delay(40);
+  }
   uint32_t at = board_ms;
   for (size_t i = 0; i < n; i++) {
     while (UART_IsTXFIFOFull(UART0)) {
-      if ((uint32_t)(board_ms - at) > 2000)
+      if ((uint32_t)(board_ms - at) > 2000) {
+        esp_wake_at = board_ms;
         return false;
+      }
     }
     UART_WriteByte(UART0, (uint8_t)s[i]);
   }
+  esp_wake_at = board_ms;
   return true;
 }
 volatile uint32_t board_sdram_error IRAM;

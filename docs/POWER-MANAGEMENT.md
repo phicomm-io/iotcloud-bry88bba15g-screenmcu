@@ -1,0 +1,32 @@
+# 电源管理
+
+## 原厂依据
+
+核对的屏幕应用为 `SENSOR3_MCU-SV.04.00.04.00.bin`，加载地址 `0x14000`，SHA-256 为 `1d0b848af6195b39849260a3c9ff2a020d574ca9b98c2c2665d2278f349796c2c`。
+
+| 行为 | 原厂代码依据 |
+| --- | --- |
+| 空闲等待中断 | `0x4ef18` 的 FreeRTOS tickless idle 停止并重装 SysTick，在 `0x4ef80` 执行 `DSB; WFI; ISB`，醒来后补偿 tick；空闲任务在至少两个 tick 空闲时调用它 |
+| 毫秒时基 | `0x4eec0` 以 `SystemCoreClock / 1000` 配置 SysTick |
+| ESP32 唤醒输出 | `0x1a4d4` 初始化 PA5 为输出，启动时置高；Wi-Fi 任务 `0x4d530` 在通信后保持高电平约一秒，再清低 |
+| 唤醒线释放 | 该任务每 100 ms 递减十次计数，`0x4d684` 至 `0x4d6c2` 控制 PA5；关机路径也清低 PA5 |
+
+配套 G3 原厂 ESP32 `V01.02.00` 将 GPIO2 配置为下拉输入和高电平轻睡眠唤醒源，轮询该输入并控制 `sensor3` APB 频率锁，电源参数为最高 80 MHz、最低 10 MHz、自动轻睡眠。两端逻辑对应 MCU 的 PA5 唤醒输出。ESP32 侧实现与构建配置见配套工程 `BRY88BBA15G/runtime.inc` 和 `DAIKIN/sdkconfig*.defaults`。
+
+上述 MCU 空闲函数使用 CPU 的等待中断指令。此次没有发现原厂应用动态调整 MCU 主频的证据，因此保留已验证的 CPU、LCD、SDRAM 和 UART 时钟。
+
+## 社区实现
+
+`board_idle()` 在无 ESP32 或传感器接收数据待处理时执行 `WFI`，由 SysTick、UART 和显示等中断唤醒。检查接收队列到执行 `WFI` 期间屏蔽中断，避免检查后到达的数据被留到下一次唤醒才处理；待处理中断仍可唤醒 CPU。启动时清除 `SLEEPDEEP` 和 `SLEEPONEXIT`，保持显示扫描、SDRAM 刷新及 UART 工作。
+
+主循环、启动维护窗口、恢复循环和毫秒延时复用该等待函数。保留 1 kHz SysTick；此实现没有移植原厂 FreeRTOS 的 tickless 时间补偿。
+
+PA5 在发送前置高，等待 40 ms 后发送首字节，覆盖原厂 ESP32 30 ms 的唤醒轮询周期。最后一批数据入队一秒后，且 UART 发送器空闲时清低。关机时立即清低。状态心跳每两秒发送，低于配套 ESP32 模块状态的五秒有效期，并给唤醒尾期留出空闲间隔；按键变化和命令响应仍即时发送。
+
+配套 ESP32 为屏幕 UART 选择 `REF_TICK`，避免 10 MHz 动态降频改变串口波特率；按 MCU 唤醒线、UART 发送及升级状态持有 APB 频率锁。仅升级 ESP32、仍使用持续拉高 PA5 的旧社区 MCU 时，会持续持有 MCU 唤醒锁，需要同时更新屏幕 MCU 才能得到通信间隙。
+
+## 验证
+
+构建 ARM 应用并检查 421888 字节安装镜像与应用向量。现有主机测试覆盖模块租期、UART 帧、传感器、恢复服务和升级；实机还需检查复位后的会话、持续有效的传感器读数、按键、显示、配置保留和再次 OTA。
+
+配套 ESP32 的 `status.get.power_management` 返回实际 PM 配置、GPIO2 电平、MCU/发送锁和最近轻睡眠唤醒原因。`last_wakeup_cause` 为 ESP-IDF 的 `esp_sleep_wakeup_cause_t`；非零表明曾有轻睡眠唤醒，不能用于推算电流或睡眠占比。实际省电幅度需测量整机电流。
