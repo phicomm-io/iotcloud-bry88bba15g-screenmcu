@@ -168,7 +168,9 @@ void board_early(void) {
   /* AM1008L SET: keep the module off throughout the SRAM recovery window. */
   GPIO_ClrBit(GPIOD, 12);
   GPIO_INIT(GPIOD, 12, GPIO_OUTPUT);
-  GPIO_INIT(GPIOM, 9, GPIO_INPUT_PullUp);
+  /* Factory 0x1a53a: PM9 input with both pulls disabled. An internal pull-up
+   * can keep external-power detection high after USB is disconnected. */
+  GPIO_INIT(GPIOM, 9, GPIO_INPUT);
   GPIO_INIT(GPIOM, 15, GPIO_INPUT_PullUp);
   /* Preload the power latch before switching its pad to output. */
   SYS->CLKEN0 |= SYS_CLKEN0_GPIOM_Msk;
