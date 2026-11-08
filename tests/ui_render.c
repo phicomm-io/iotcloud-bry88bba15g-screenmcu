@@ -136,6 +136,18 @@ static void fits_text(lv_obj_t *o) {
 static void fits_label(lv_obj_t *root,const char *text) {
  lv_obj_t *o=find(root,text);if(!o)fprintf(stderr,"Missing compact label: %s\n",text);fits_text(o);
 }
+static void ota_text(void) {
+ model.appearance.language=0;model.ota=true;
+ assert(screen_ui(&model,120000,false));draw();
+ lv_obj_t *o=find(lv_scr_act(),"正在更新\n请保持供电");assert(o);
+ artifact("ota-dialog");
+ const lv_font_t *fonts[]={lv_obj_get_style_text_font(o,0),screen_ui_font(24,false)};
+ for(unsigned i=0;i<sizeof(fonts)/sizeof(fonts[0]);i++) {
+  assert(lv_font_get_glyph_width(fonts[i],'\n',0)==0);
+  assert(lv_font_get_glyph_width(fonts[i],'\r',0)==0);
+ }
+ model.ota=false;
+}
 static void compact_widgets(void) {
  screen_init(&model);model.battery_valid=true;model.battery_percent=78;
  wallpaper.ready=false;wallpaper.wanted=0;
@@ -444,5 +456,6 @@ int main(void) {
  artifact("sixth-page-three-units");
  printf("PASS UI: 16px margins, 448x772 content, full-width translucent rail for 1-8 pages, disabled-page filtering, retained label/card identity, isolated minute chart, 144 KiB bounded glyph LRU, square/row growth, 4x1, seven 4x2 charts, singleton pixels, drizzle icon pixels in both weather sizes, freshness/clock/TTL invalidation, 4000 unchanged frames %.2f ms, 200 local updates %.2f ms, heap stable %u bytes free, peak %u / %u bytes\n",skipped_ms,redraw_ms,(unsigned)after.free_size,(unsigned)after.max_used,(unsigned)after.total_size);
  compact_widgets();puts("PASS compact widgets: 4x1 clock/weather, 4x2 weather, 2x1 readings; real label bounds, numeric fitting, missing/expired data, title hiding and both languages");
+ ota_text();puts("PASS OTA dialog: line breaks have zero glyph width and no question-mark fallback");
  lv_deinit();return 0;
 }

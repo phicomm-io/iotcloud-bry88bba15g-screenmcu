@@ -6,6 +6,7 @@ LV_FONT_DECLARE(zh16);
 static uint8_t bitmap[512];
 static bool glyph(const lv_font_t *f,lv_font_glyph_dsc_t *out,uint32_t c,uint32_t next) {
   (void)f;
+  if(c<0x20)return false; /* Let LVGL handle line breaks without a placeholder. */
   resource_glyph g;
   if(resources_glyph(&screen_font_resources,c,&g)){
     *out=(lv_font_glyph_dsc_t){.adv_w=g.advance,.box_w=g.width,.box_h=g.height,
@@ -17,7 +18,7 @@ static bool glyph(const lv_font_t *f,lv_font_glyph_dsc_t *out,uint32_t c,uint32_
   out->bpp=1;return true;
 }
 static const uint8_t *pixels(const lv_font_t *f,uint32_t c) {
-  (void)f;resource_glyph g;
+  (void)f;if(c<0x20)return NULL;resource_glyph g;
   if(resources_glyph(&screen_font_resources,c,&g))return g.pixels;
   if(c>=0xff01 && c<=0xff5e)c-=0xfee0;
   lv_font_glyph_dsc_t d;
