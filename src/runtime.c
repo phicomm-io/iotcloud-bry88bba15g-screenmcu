@@ -360,7 +360,7 @@ bool screen_runtime_sht(screen_runtime *s, const uint8_t frame[6],
   return true;
 }
 static bool calibration_fresh(const screen_runtime *s, unsigned i) {
-  return !s->model.ota && screen_sample_valid(&s->model,
+  return !s->model.ota && (i || !s->co2_not_ready) && screen_sample_valid(&s->model,
       i ? MET_TVOC : MET_CO2, s->now) &&
       (!i || (!s->module.inhibited && !s->module.duration));
 }

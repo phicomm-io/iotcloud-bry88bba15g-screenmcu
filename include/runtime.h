@@ -33,6 +33,7 @@ typedef struct {
   uint32_t calibration_valid_since[2];
   /* Result survives the stock executor returning to its idle stage. */
   uint8_t calibration_result[2];
+  bool co2_not_ready;
   screen_module module;
   calibration_emit calibration_event;
   void *context;

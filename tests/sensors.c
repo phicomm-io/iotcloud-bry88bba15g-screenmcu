@@ -121,6 +121,10 @@ int main(void){
   screen_sample_set(&runtime.model,MET_TVOC,100,true,now);
   screen_runtime_calibration_poll(&runtime,now/100,400,100);
  }
+ runtime.co2_not_ready=true;
+ assert(screen_runtime_calibration_warmup(&runtime,0)==180000);
+ assert(!screen_runtime_calibration_service(&runtime,true,1,true,0));
+ runtime.co2_not_ready=false;
  assert(!screen_runtime_calibration_warmup(&runtime,0));
  assert(!screen_runtime_calibration_warmup(&runtime,1));
  assert(screen_runtime_calibration_service(&runtime,true,1,true,0));

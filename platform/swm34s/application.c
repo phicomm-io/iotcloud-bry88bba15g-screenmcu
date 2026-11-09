@@ -483,8 +483,12 @@ static void sensor_frame_read(unsigned index, uint32_t now) {
           !memcmp(f->bytes, calibration_ack, sizeof(calibration_ack)))
         screen_runtime_calibration_ack(&runtime);
       else if (index == 0 && sensor_uart_value(f->bytes, n, 1, &v) &&
-          v <= 5000)
+          v <= 5000) {
+        /* CM1106 status DF3: warm-up, sensor error, over/under range. The
+         * uncalibrated flag itself must not prevent a manual calibration. */
+        runtime.co2_not_ready = n >= 8 && (f->bytes[5] & 0x0f);
         screen_sample_set(&runtime.model, MET_CO2, v, true, now);
+      }
       else if (index == 1 && n >= 12 &&
                sensor_uart_value(f->bytes, n, 0x16, &v)) {
         runtime.module.frames++;
