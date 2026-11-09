@@ -617,7 +617,14 @@ static bool nor_erase_block(uint32_t a,uint8_t cmd) {
   if(nor_read_mode==GUARD_NOR_GPIO) {
     cs(false);spi(6);cs(true);
     cs(false);spi(cmd);address(a);cs(true);
-  } else if(!nor_sfc_command(cmd,7,a,0,5000))return false;
+  } else if(!nor_sfc_command(cmd,7,a,0,5000)) {
+    char notice[96];
+    int n=snprintf(notice,sizeof(notice),
+        "screen_ota_error sfc_erase %08lx %08lx\r\n",
+        (unsigned long)a,(unsigned long)SFC->IF);
+    board_send(NULL,notice,(size_t)n);
+    return false;
+  }
   return ready(5000);
 }
 bool board_nor_erase(void *ctx,uint32_t a,size_t n) {

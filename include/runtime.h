@@ -30,6 +30,9 @@ typedef struct {
   sensor_sht_state sht;
   bool sensor_config_valid;
   sensor_calibration calibration;
+  uint32_t calibration_valid_since[2];
+  /* Result survives the stock executor returning to its idle stage. */
+  uint8_t calibration_result[2];
   screen_module module;
   calibration_emit calibration_event;
   void *context;
@@ -71,3 +74,11 @@ void screen_runtime_calibration_poll(screen_runtime *, uint32_t age,
  * belongs to that owner. Does not advertise a new extension or imply done. */
 bool screen_runtime_calibration_service(screen_runtime *, bool has_co2, int co2,
                                         bool has_tvoc, int tvoc);
+
+/* Community UI uses the existing factory JSON service; readiness is measured
+ * from continuous fresh sensor operation, including a new module warm-up. */
+enum { SCREEN_CAL_IDLE, SCREEN_CAL_FAILED=2, SCREEN_CAL_SENT,
+       SCREEN_CAL_ACKNOWLEDGED, SCREEN_CAL_CANCELLED, SCREEN_CAL_SENSOR_LOST };
+uint32_t screen_runtime_calibration_warmup(const screen_runtime *, unsigned index);
+bool screen_runtime_calibration_cancel(screen_runtime *);
+void screen_runtime_calibration_ack(screen_runtime *);

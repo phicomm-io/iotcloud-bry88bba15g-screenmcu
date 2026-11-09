@@ -161,6 +161,26 @@ void factory_snapshot(factory_owner *f, const char *token, bool response) {
                                 ? 0x59
                                 : 0x52);
   }
+  cJSON *cal = object(d, "calibration");
+  cJSON_AddNumberToObject(cal, "version", 1);
+  cJSON_AddNumberToObject(cal, "pending", f->runtime->calibration.pending);
+  for (unsigned i=0;i<2;i++) {
+    cJSON *job = object(cal, i ? "tvoc" : "co2");
+    const calibration_job *j = &f->runtime->calibration.jobs[i];
+    unsigned result = f->runtime->calibration_result[i];
+    bool active = (f->runtime->calibration.pending & (1u<<i)) != 0;
+    uint32_t warmup = screen_runtime_calibration_warmup(f->runtime, i);
+    const char *state = result == SCREEN_CAL_ACKNOWLEDGED ? "acknowledged" :
+        result == SCREEN_CAL_SENT ? "command_sent" :
+        result == SCREEN_CAL_CANCELLED ? "cancelled" :
+        result == SCREEN_CAL_SENSOR_LOST ? "sensor_lost" :
+        result == SCREEN_CAL_FAILED ? "failed" :
+        active ? "sampling" : warmup ? "warming" : "idle";
+    cJSON_AddStringToObject(job, "state", state);
+    cJSON_AddBoolToObject(job, "ready", !warmup);
+    cJSON_AddNumberToObject(job, "warmup_seconds", (warmup + 999) / 1000);
+    cJSON_AddNumberToObject(job, "samples", j->index);
+  }
   cJSON_AddNumberToObject(s, "tvoc_level", m->tvoc_level);
   cJSON_AddNumberToObject(s, "battery_status", m->battery_valid ? 0x51 : 0x52);
   cJSON_AddNumberToObject(s, "battery", m->battery_percent);
@@ -293,7 +313,9 @@ static void service(factory_owner *f, const char *topic, const char *text,
     if ((!hc || number(d, "co2", 1, &co2)) &&
         (!ht || number(d, "tvoc", 1, &tvoc)))
       ok = screen_runtime_calibration_service(f->runtime, hc, co2, ht, tvoc);
-  } else if (!strcmp(name, "hcho_install"))
+  } else if (!strcmp(name, "calibration_cancel"))
+    ok = screen_runtime_calibration_cancel(f->runtime);
+  else if (!strcmp(name, "hcho_install"))
     ok = calibration_hcho_install(true);
   else if (!strcmp(name, "ota")) {
     ok = !f->maintenance->state;
@@ -390,7 +412,8 @@ void factory_tick(factory_owner *f, uint32_t now) {
     }
   }
   if (f->have_mac && f->configured &&
-      (uint32_t)(now - f->snapshot_at) >= 15000) {
+      (uint32_t)(now - f->snapshot_at) >=
+          (f->runtime->calibration.pending ? 2000u : 15000u)) {
     factory_snapshot(f, NULL, false);
     f->snapshot_at = now;
     if (!f->runtime->caps.ready && !f->runtime->offered && f->nonce)

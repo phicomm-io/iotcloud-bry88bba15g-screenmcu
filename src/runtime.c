@@ -359,19 +359,80 @@ bool screen_runtime_sht(screen_runtime *s, const uint8_t frame[6],
   screen_sample_set(&s->model, MET_HUM, result.humidity10 / 10.0f, true, now);
   return true;
 }
+static bool calibration_fresh(const screen_runtime *s, unsigned i) {
+  return !s->model.ota && screen_sample_valid(&s->model,
+      i ? MET_TVOC : MET_CO2, s->now) &&
+      (!i || (!s->module.inhibited && !s->module.duration));
+}
+uint32_t screen_runtime_calibration_warmup(const screen_runtime *s, unsigned i) {
+  uint32_t required = i ? 320000 : 180000;
+  if (!calibration_fresh(s, i) || !s->calibration_valid_since[i]) return required;
+  uint32_t elapsed = s->now - s->calibration_valid_since[i];
+  return elapsed >= required ? 0 : required - elapsed;
+}
 bool screen_runtime_calibrate(screen_runtime *s, unsigned channels) {
-  return s && s->calibration_event &&
-         calibration_request(&s->calibration, channels);
+  if (!s || !s->calibration_event || !channels || (channels & ~3u) ||
+      s->calibration.pending) return false;
+  for (unsigned i=0;i<2;i++) if (channels & (1u<<i)) {
+    if (screen_runtime_calibration_warmup(s, i)) return false;
+  }
+  if (!calibration_request(&s->calibration, channels)) return false;
+  for (unsigned i=0;i<2;i++) if (channels & (1u<<i)) {
+    s->calibration.jobs[i].status = 0x51;
+    s->calibration_result[i] = SCREEN_CAL_IDLE;
+  }
+  return true;
+}
+static bool calibration_event(void *context, unsigned channel, unsigned event,
+                               const uint8_t *data, size_t size) {
+  screen_runtime *s = context;
+  unsigned i = channel == CAL_CO2 ? 0 : 1;
+  bool ok = s->calibration_event(s->context, channel, event, data, size);
+  if (event == CAL_COMMAND && ok) s->calibration_result[i] = SCREEN_CAL_SENT;
+  if (event == CAL_REPORT && size == 1 &&
+      s->calibration_result[i] != SCREEN_CAL_ACKNOWLEDGED &&
+      s->calibration_result[i] != SCREEN_CAL_SENSOR_LOST)
+    s->calibration_result[i] = data[0];
+  return ok;
 }
 void screen_runtime_calibration_poll(screen_runtime *s, uint32_t age,
                                      uint16_t co2, uint16_t tvoc) {
-  if (s)
-    calibration_poll(&s->calibration, age, co2, tvoc, s->calibration_event,
-                     s->context);
+  if (!s) return;
+  for (unsigned i=0;i<2;i++) {
+    bool fresh = calibration_fresh(s, i);
+    if (!fresh) s->calibration_valid_since[i] = 0;
+    else if (!s->calibration_valid_since[i])
+      s->calibration_valid_since[i] = s->now ? s->now : 1;
+    calibration_job *j = &s->calibration.jobs[i];
+    if (!fresh && (s->calibration.pending & (1u<<i)) && j->stage < 8) {
+      j->status = 0x55; j->issued = 0; j->stage = 8;
+      s->calibration_result[i] = SCREEN_CAL_SENSOR_LOST;
+    }
+  }
+  calibration_poll(&s->calibration, age, co2, tvoc,
+                    s->calibration_event ? calibration_event : NULL, s);
 }
-
 bool screen_runtime_calibration_service(screen_runtime *s, bool hc, int co2,
                                         bool ht, int tvoc) {
-  return s && s->calibration_event &&
-         calibration_factory_service(&s->calibration, hc, co2, ht, tvoc);
+  return hc && ht && (co2==0 || co2==1) && (tvoc==0 || tvoc==1) &&
+         screen_runtime_calibrate(s, (co2 ? CAL_CO2 : 0) | (tvoc ? CAL_TVOC : 0));
+}
+bool screen_runtime_calibration_cancel(screen_runtime *s) {
+  if (!s || !s->calibration.pending) return false;
+  for (unsigned i=0;i<2;i++) if ((s->calibration.pending & (1u<<i)) &&
+      s->calibration.jobs[i].issued) return false;
+  for (unsigned i=0;i<2;i++) if (s->calibration.pending & (1u<<i)) {
+    s->calibration_result[i] = SCREEN_CAL_CANCELLED;
+    s->calibration.jobs[i].stage = 1;
+    s->calibration.jobs[i].saved_status = 0;
+  }
+  s->calibration.pending = 0;
+  return true;
+}
+void screen_runtime_calibration_ack(screen_runtime *s) {
+  if (s->calibration.co2_command_pending &&
+      s->calibration_result[0] == SCREEN_CAL_SENT) {
+    s->calibration_result[0] = SCREEN_CAL_ACKNOWLEDGED;
+    s->calibration.co2_command_pending = false;
+  }
 }

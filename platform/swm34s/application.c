@@ -204,6 +204,10 @@ static void sensors_reset(void);
 static void maintenance_activity(void *context, bool active) {
   (void)context;
   if (normal_ready) {
+    if (active) {
+      screen_runtime_calibration_cancel(&runtime);
+      runtime.calibration_valid_since[1] = 0;
+    }
     power.ota = runtime.model.ota = active;
     runtime.model.asleep = active ? false : power.asleep;
     /* Apply before the first bounded NOR erase can block the normal tick. */
@@ -456,6 +460,7 @@ static void sensors_reset(void) {
   board_sensor_flush();memset(frames,0,sizeof(frames));
 }
 static uint8_t hcho_status = 0x59;
+static uint16_t tvoc_raw;
 static void sensor_frame_read(unsigned index, uint32_t now) {
   sensor_rx_frame *f = &frames[index];
 #ifdef SCREEN_UART2_QUIET
@@ -473,12 +478,17 @@ static void sensor_frame_read(unsigned index, uint32_t now) {
     unsigned n=sensor_rx_parse(f,entry);
     if (n) {
       uint16_t v;
-      if (index == 0 && sensor_uart_value(f->bytes, n, 1, &v) &&
+      static const uint8_t calibration_ack[] = {0x16, 1, 3, 0xe6};
+      if (index == 0 && n == sizeof(calibration_ack) &&
+          !memcmp(f->bytes, calibration_ack, sizeof(calibration_ack)))
+        screen_runtime_calibration_ack(&runtime);
+      else if (index == 0 && sensor_uart_value(f->bytes, n, 1, &v) &&
           v <= 5000)
         screen_sample_set(&runtime.model, MET_CO2, v, true, now);
       else if (index == 1 && n >= 12 &&
                sensor_uart_value(f->bytes, n, 0x16, &v)) {
         runtime.module.frames++;
+        tvoc_raw = v;
         screen_sample_set(&runtime.model, MET_TVOC, fminf(v, 2000), true, now);
         unsigned raw = (unsigned)f->bytes[9] << 8 | f->bytes[10];
         unsigned coefficient = factory.settings[12] | factory.settings[13] << 8;
@@ -779,7 +789,7 @@ void screen_start(void) {
       next_cal = now + 100;
       screen_runtime_calibration_poll(&runtime, now / 100,
                                       runtime.model.samples[MET_CO2].value,
-                                      runtime.model.samples[MET_TVOC].value);
+                                      tvoc_raw);
     }
     if ((int32_t)(now - next_status) >= 0) {
       /* Leave an idle gap after the stock one-second ESP wake tail; module

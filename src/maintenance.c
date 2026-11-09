@@ -72,8 +72,13 @@ static bool ota_line(screen_maintenance *m, const char *s, uint32_t now) {
   if (m->state == 1 && !strncmp(s, "+bin_summary:", 13)) {
     const char *comma = strchr(s + 13, ',');
     uint8_t md5[16];
-    if (!comma || !digest(comma + 1, md5) ||
-        !screen_update_begin(&m->update, SCREEN_APP_LIMIT, md5)) {
+    if (!comma || !digest(comma + 1, md5)) {
+      send(m, "screen_ota_error metadata\r\n");
+      abort_transfer(m);
+      return true;
+    }
+    if (!screen_update_begin(&m->update, SCREEN_APP_LIMIT, md5)) {
+      send(m, "screen_ota_error staging_begin\r\n");
       abort_transfer(m);
       return true;
     }
