@@ -27,6 +27,26 @@ PA5 在发送前置高，等待 40 ms 后发送首字节，覆盖原厂 ESP32 30
 
 配套 ESP32 为屏幕 UART 选择 `REF_TICK`，避免 10 MHz 动态降频改变串口波特率；按 MCU 唤醒线、UART 发送及升级状态持有 APB 频率锁。仅升级 ESP32、仍使用持续拉高 PA5 的旧社区 MCU 时，会持续持有 MCU 唤醒锁，需要同时更新屏幕 MCU 才能得到通信间隙。
 
+摄像头及地址通知收到与上一帧像素 CRC、尺寸相同的画面时，不再使图像区域失效。
+接收、JPEG 解码和 CRC 校验仍会执行；静态地址的重复拉取因此可以继续更新网络
+状态，同时省去重复绘制与搬运。CRC 使用 1 KiB Flash 查表，不增加运行时表内存。
+
+ESP32 的 TCP 透传任务在没有连接或等待 MCU 接收额度时阻塞于命令队列，新的
+打开、发送、额度和关闭命令会立即唤醒它；仅在可接收网络数据时保留 10 ms 轮询。
+`power_management` 中的 `relay_idle_blocked`、`relay_idle_waits`、
+`relay_timed_poll_wakeups`、`relay_jobs_handled` 可检查空闲期间是否仍有定时唤醒，
+以及后续流能否恢复。高于 115200 的串口使用 APB 时钟并保留 APB 与轻睡眠锁，
+避免高速链路受动态时钟变化影响；默认 115200 仍使用 REF_TICK。
+
+Repeated camera/URL notification frames with the same RGB CRC and dimensions
+retain the displayed pixels. Reception, JPEG decoding and checksum calculation
+still run; LVGL drawing and DMA copies are skipped. CRC uses a constant 1 KiB
+Flash table. The ESP TCP relay blocks on its command queue while it has no socket
+or MCU receive credit. Open/write/credit/close jobs wake it immediately; only an
+eligible network read retains the 10 ms poll. The relay diagnostic counters in
+`power_management` expose this behavior. UART rates above 115200 retain APB and
+no-light-sleep locks; the default 115200 uses REF_TICK.
+
 ## 验证
 
 构建 ARM 应用并检查 421888 字节安装镜像与应用向量。现有主机测试覆盖模块租期、UART 帧、传感器、恢复服务和升级；实机还需检查复位后的会话、持续有效的传感器读数、按键、显示、配置保留和再次 OTA。

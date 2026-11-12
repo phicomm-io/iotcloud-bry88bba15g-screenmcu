@@ -56,7 +56,10 @@ Older MCU versions return zero for these optional fields.
 
 LCD scans at 120 MHz / 8 / (560 × 894), approximately 29.96 Hz. DMA2D is clock
 gated after transfer, and JPEG from startup and after decoding; each is enabled
-before its next job. Unchanged content does not invalidate the display. CPU
+before its next job. The IEEE CRC32 uses a constant 1 KiB lookup table for UART records and decoded
+RGB pixels. Camera and URL notification redraws use the RGB checksum and image
+geometry, so repeated identical frames keep the existing scanout. Stream frame
+counters still count completed decodes; they do not count LCD redraws. CPU
 idle uses WFI, retaining the 1 kHz timebase, LCD, SDRAM refresh and UART. Electrical
 power savings require a board-current measurement.
 
@@ -85,7 +88,9 @@ RGB565。网页预览同步透明度和尺寸。通知叠层在创建时预先�
 分离区域；完整重画和重复摄像头区域要求旧帧复制量为零。50 ms DMA 超时回退
 CPU，200 ms 帧交换超时进入恢复服务。可用 `SCREEN_DMA2D=OFF` 做 CPU 对照。
 
-画面不变时不重复绘制、搬运或解码，JPEG 和 DMA2D 在空闲时关闭时钟，CPU
-使用 WFI。LCD、SDRAM 刷新、UART 和 1 kHz 时基继续工作，实际省电幅度需测电流。
+CRC32 使用 1 KiB 只读表，缩短串口及整幅 RGB 校验。摄像头和地址通知按像素
+CRC 与尺寸判断是否需要重画：重复帧仍完成接收、解码和校验，但跳过 LVGL 重绘
+及 DMA 搬运。流帧计数记录完成解码的帧数，不等同于 LCD 重画次数。
+没有新图像时保留前台帧；JPEG 和 DMA2D 在空闲时关闭时钟，CPU 使用 WFI。LCD、SDRAM 刷新、UART 和 1 kHz 时基继续工作，实际省电幅度需测电流。
 SDK 还提供填充、格式转换和混合，但都竞争 SDRAM 带宽；直接启用通用 LVGL
 后端还需处理同步、时钟、超时和回退，不能仅凭支持硬件加速就判断更快。
