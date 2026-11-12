@@ -438,7 +438,9 @@ void board_display(void) {
       board_delay(20);
   }
   LCD_InitStructure c = {0};
-  c.ClkDiv = 6;
+  /* 120 MHz / 8 / (560 * 894) = 29.96 Hz. Leave more SDRAM bus time
+   * for rendering and DMA while retaining continuous panel scanout. */
+  c.ClkDiv = 8;
   c.Format = LCD_FMT_RGB565;
   c.HnPixel = 480;
   c.VnPixel = 854;

@@ -67,6 +67,8 @@ bool board_jpeg_decode(void *context, const uint8_t *p, size_t n,
   info.HTableCnt = 2;
   info.CodeAddr = (uint32_t)(p + j->scan_offset);
   info.CodeLen = j->scan_bytes;
+  SYS->CLKEN1 |= SYS_CLKEN1_JPEG_Msk;
+  __DSB();
   reset_decoder();
   JPEG_InitStructure init = {0};
   JPEG_Init(JPEG, &init);
@@ -121,5 +123,8 @@ bool board_jpeg_decode(void *context, const uint8_t *p, size_t n,
   registers[15] = j->scan_offset;
   if (!ok)
     reset_decoder();
+  /* RGB565 output stays in SDRAM; the decoder need not run between frames. */
+  SYS->CLKEN1 &= ~SYS_CLKEN1_JPEG_Msk;
+  __DSB();
   return ok;
 }

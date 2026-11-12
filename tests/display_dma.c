@@ -17,9 +17,10 @@ static jmp_buf scan_failure;
 static uint32_t board_ms, micros;
 static struct { lv_disp_drv_t *driver; lv_area_t area; lv_color_t *pixels;
   uint32_t started, started_ms; bool last; unsigned phase; } pending_flush;
-static struct { unsigned PRSTEN, PRSTR0; } system_registers;
+static struct { unsigned PRSTEN, PRSTR0, CLKEN0; } system_registers;
 #define SYS (&system_registers)
 #define SYS_PRSTR0_DMA2D_Msk 1u
+#define SYS_CLKEN0_DMA2D_Msk 2u
 typedef struct { uint32_t Address, LineOffset; unsigned ColorMode, LineCount, LinePixel; } DMA2D_LayerSetting;
 typedef struct { unsigned Interval; } DMA2D_InitStructure;
 #define DMA2D_FMT_RGB565 2
@@ -42,6 +43,7 @@ static bool board_display_present_pending(void) {
 static void display_scan_failed(void) { longjmp(scan_failure, 1); }
 static void DMA2D_Init(DMA2D_InitStructure *config) { assert(config->Interval); }
 static void DMA2D_PixelMove(DMA2D_LayerSetting *a, DMA2D_LayerSetting *b) {
+  assert(SYS->CLKEN0 & SYS_CLKEN0_DMA2D_Msk);
   assert(!remaining); input = *a; output = *b; remaining = latency;
   /* No DMA transfer may target the framebuffer owned by LCD scanout. */
   uint32_t delta = b->Address - (uint32_t)(uintptr_t)framebuffer[scanned_front];
@@ -73,6 +75,7 @@ bool lv_disp_flush_is_last(lv_disp_drv_t *driver) { assert(driver); return last;
 
 int main(void) {
   display_dma_init(); assert(display_dma_ready && !display_dma_fault);
+  assert(!(SYS->CLKEN0 & SYS_CLKEN0_DMA2D_Msk));
   lv_disp_drv_t driver = {0};
   lv_area_t area = {.x1 = 17, .y1 = 20, .x2 = 40, .y2 = 29};
   for (unsigned i = 0; i < 240; i++) drawbuffer[0][i].full = i + 1;
@@ -82,6 +85,7 @@ int main(void) {
   memset(drawbuffer[1], 0xff, sizeof(drawbuffer[1]));
   while (!display_flush_poll()) {}
   assert(completions == 1 && !pending_flush.driver);
+  assert(!(SYS->CLKEN0 & SYS_CLKEN0_DMA2D_Msk));
   for (unsigned y = 0; y < 854; y++) for (unsigned x = 0; x < 480; x++) {
     unsigned expected = y >= 20 && y <= 29 && x >= 17 && x <= 40 ? (y - 20) * 24 + x - 16 : 0;
     assert(framebuffer[0][y * 480 + x].full == expected);

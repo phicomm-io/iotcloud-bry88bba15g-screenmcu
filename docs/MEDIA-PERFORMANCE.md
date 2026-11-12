@@ -27,16 +27,31 @@ The display diagnostic records each flush through actual DMA completion,
 including CPU overlap. Sum of flush durations is therefore not additive with
 drawing time. The board summary adds render_flags at byte 120 (bit 0 row
 scaler, bit 1 DMA enabled, bit 2 two strips, bit 3 DMA failure, bit 4 two full
-frames with frame-start reload) and dma_flushes
+frames with frame-start reload, bit 5 DMA2D clock gated, bit 6 JPEG clock gated)
+and dma_flushes
 at byte 124. Older MCU versions return zero for these optional fields.
+
+LCD keeps scanning the front framebuffer at 120 MHz / 8 / (560 × 894), about
+29.96 Hz. DMA2D yields 64 HCLK cycles between 64-word blocks to reduce contention
+with continuous LCD reads. DMA2D is clock gated after a flush completes; JPEG
+is clock gated after decoding. Each peripheral is enabled before its next job.
+Unchanged UI content does not invalidate the display, so static frames need no
+repeated drawing, copying or decoding. CPU idle uses WFI, retaining the 1 kHz
+timebase, LCD, SDRAM refresh and UART. These states do not measure electrical
+power savings; board current must be measured separately.
 
 当前采用 JPEG 硬解码、按行快速缩放、两份 40 行绘制缓冲和 DMA2D 搬运。缩放结果
 与生产 LVGL 的整帧像素比较；透明度、旋转、圆角遮罩等情况自动走通用绘制路径。
 启动时验证真实 DMA 的颜色、行跨度和保护像素，失败或超时后回退 CPU。新增 SDRAM
 38400 字节，第二块完整帧缓冲增加 819840 字节。绘制只写后台帧，完整刷新后通过
 VBPRELOAD 在下一帧开始时切换；硬件确认后，将脏矩形同步到已释放的旧前台帧。
-不改像素时钟或连续扫描配置。200 ms 未完成交换则进入恢复服务。诊断中的最后
+LCD 保留连续扫描，像素时钟改为 15 MHz，扫描约 29.96 Hz。200 ms 未完成交换则进入
+恢复服务。条带 DMA 超时 50 ms，整帧同步超时 250 ms。诊断中的最后
 一次 flush 包括帧边界等待和脏区域同步，不能直接当成 DMA 纯搬运耗时。
+
+画面不变时不重复绘制、搬运或解码。DMA2D 每次完成刷新后关时钟，JPEG 每次完成
+解码后关时钟，下次工作前恢复；CPU 空闲时保持 WFI。屏幕扫描、SDRAM 刷新、串口
+及 1 kHz 时基继续工作。实际整机省电幅度需要单独测电流。
 
 Camera cards and image letterboxes use opaque backgrounds. Notification back
 cards precompose their decorative alpha into solid RGB565 colors once at

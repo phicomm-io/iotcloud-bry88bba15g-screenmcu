@@ -17,9 +17,15 @@ static void display_dma_reset(void) {
   SYS->PRSTEN = 0;
   __DSB();
 }
+static void display_dma_clock(bool enabled) {
+  if (enabled) SYS->CLKEN0 |= SYS_CLKEN0_DMA2D_Msk;
+  else SYS->CLKEN0 &= ~SYS_CLKEN0_DMA2D_Msk;
+  __DSB();
+}
 static void display_dma_move(const lv_color_t *source, lv_color_t *destination,
                              unsigned width, unsigned height,
                              unsigned source_offset, unsigned offset) {
+  display_dma_clock(true);
   DMA2D_LayerSetting input = {.Address = (uint32_t)source,
       .LineOffset = source_offset, .ColorMode = DMA2D_FMT_RGB565};
   DMA2D_LayerSetting output = {.Address = (uint32_t)destination,
@@ -30,7 +36,8 @@ static void display_dma_move(const lv_color_t *source, lv_color_t *destination,
 static void display_dma_init(void) {
   display_dma_fault = true;
   display_dma_reset();
-  DMA2D_InitStructure configuration = {.Interval = 8};
+  /* Yield between 64-word bursts so continuous LCD reads retain bandwidth. */
+  DMA2D_InitStructure configuration = {.Interval = 64};
   DMA2D_Init(&configuration);
   /* Check real RGB565 order and destination stride before allowing DMA to
    * touch scanout. Both scratch strips are unused until LVGL is registered. */
@@ -41,8 +48,9 @@ static void display_dma_init(void) {
   display_dma_move(drawbuffer[0], drawbuffer[1] + 1, 8, 2, 0, 3);
   uint32_t started = board_ms;
   while (DMA2D_IsBusy() && (uint32_t)(board_ms - started) < 50) board_watchdog_feed();
-  if (DMA2D_IsBusy()) { display_dma_reset(); return; }
+  if (DMA2D_IsBusy()) { display_dma_reset(); display_dma_clock(false); return; }
   __DSB();
+  display_dma_clock(false);
   for (unsigned i = 0; i < 24; i++) {
     unsigned row = i >= 12;
     bool written = (i >= 1 && i <= 8) || (i >= 12 && i <= 19);
@@ -111,6 +119,7 @@ static bool display_flush_poll(void) {
                     pending_flush.started, board_time_us(), pending_flush.last);
   lv_disp_drv_t *driver = pending_flush.driver;
   pending_flush.driver = NULL;
+  display_dma_clock(false);
   lv_disp_flush_ready(driver);
   return true;
 }

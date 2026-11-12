@@ -155,7 +155,9 @@ static struct {
 } pending_flush;
 void board_display_acceleration(uint8_t p[128]) {
   scene_put32(p + 120, 1u | (display_dma_ready ? 2u : 0u) | 4u | 16u |
-                            (display_dma_fault ? 8u : 0u));
+                            (display_dma_fault ? 8u : 0u) |
+                            (!(SYS->CLKEN0 & SYS_CLKEN0_DMA2D_Msk) ? 32u : 0u) |
+                            (!(SYS->CLKEN1 & SYS_CLKEN1_JPEG_Msk) ? 64u : 0u));
   scene_put32(p + 124, display_dma_flushes);
 }
 static void display_scan_failed(void) {
