@@ -270,6 +270,15 @@ bool board_send(void *ctx, const char *s, size_t n) {
   esp_wake_at = board_ms;
   return true;
 }
+bool board_uart_baud(uint32_t baud){
+  if(!media_rate_valid(baud))return false;
+  uint32_t at=board_ms;
+  while(UART_IsTXBusy(UART0))if((uint32_t)(board_ms-at)>100)return false;
+  NVIC_DisableIRQ(UART0_IRQn);UART_SetBaudrate(UART0,baud);
+  uint32_t actual=UART_GetBaudrate(UART0);
+  NVIC_EnableIRQ(UART0_IRQn);
+  return actual>baud*98u/100u&&actual<baud*102u/100u;
+}
 volatile uint32_t board_sdram_error IRAM;
 bool board_sdram(void) {
   board_sdram_error = 0;

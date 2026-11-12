@@ -5,6 +5,8 @@
 #include "wallpaper.h"
 #include "resources.h"
 #include "ui_language.h"
+#include "media.h"
+#include "stream.h"
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -19,6 +21,18 @@ static unsigned BG,CARD,INK,MUTED,GRID,colors[3];
 static const screen_appearance *appearance;
 static const appearance_item *custom;
 static bool have_wallpaper;
+static lv_obj_t *box(lv_obj_t *,int,int,int,int,unsigned,int);
+static lv_img_dsc_t media_image_descriptor,stream_image_descriptor;
+static void picture(lv_obj_t *parent,lv_img_dsc_t *descriptor,const uint16_t *pixels,unsigned width,unsigned height,int x,int y,int w,int h,bool cover){
+  if(!width||!height||w<=0||h<=0)return;
+  lv_obj_t *clip=box(parent,x,y,w,h,0,0);
+  lv_obj_set_style_bg_opa(clip,LV_OPA_TRANSP,0);
+  *descriptor=(lv_img_dsc_t){.header={.cf=LV_IMG_CF_TRUE_COLOR,.w=width,.h=height},.data_size=width*height*2u,.data=(const uint8_t *)pixels};
+  lv_obj_t *image=lv_img_create(clip);lv_img_set_src(image,descriptor);
+  unsigned a=(unsigned)w*256/width,b=(unsigned)h*256/height,zoom=cover?(a>b?a:b):(a<b?a:b);
+  if(!zoom)zoom=1;
+  lv_img_set_zoom(image,zoom);lv_img_set_antialias(image,false);lv_obj_center(image);
+}
 /* Only fixed-shape clock/value cards reuse label children. Their text and
  * fitted font change without deleting objects or touching other cards. */
 static lv_obj_t *reuse_labels;
@@ -535,6 +549,10 @@ static lv_obj_t *component(lv_obj_t *root,const screen_model *m,const scene_item
       label(c,0,y,w,42,r->title,&zh32,wc(1));label(c,0,y+48,w,h-y-48<108?h-y-48:108,r->text,&zh32,wc(4));row++;
     }
     if(!row)label(c,0,64,w,80,"暂无提醒",&zh32,MUTED);
+  } else if(it->type==SC_IMAGE) {
+    int top=it->hide_title?0:48;
+    if(stream.width&&stream.height)picture(c,&stream_image_descriptor,stream.pixels,stream.width,stream.height,0,top,w,h-top,it->image_fit!=0);
+    else label(c,0,top,w,h-top,english?"Waiting for camera":"等待摄像头画面",&zh32,MUTED);
   }
   return c;
 }
@@ -549,6 +567,7 @@ static uint64_t structure_hash(const screen_model *m) {
   HASH(screen_font_resources.state);HASH(screen_font_resources.crc);
   HASH(m->appearance);HASH(wallpaper.kind);HASH(wallpaper.ready);HASH(wallpaper.crc);
   HASH(m->page);HASH(m->scene);HASH(m->ota);
+  HASH(media.active);HASH(media.suspended);
 #undef HASH
   return hash;
 }
@@ -568,6 +587,7 @@ static uint64_t content_hash(const screen_model *m,const scene_item *it,uint32_t
       hash=hash_bytes(hash,&m->weather.fields,sizeof(m->weather)-offsetof(screen_weather,fields));
     }
     else if(it->type==SC_REMINDERS)hash=hash_bytes(hash,m->reminders,sizeof(m->reminders));
+    else if(it->type==SC_IMAGE){HASH(stream.revision);HASH(stream.width);HASH(stream.height);}
     if((it->type==SC_LINE||it->type==SC_BAR||it->type==SC_PIE)&&it->binding!=SC_BIND_EXTERNAL) {
       uint32_t minute=now/60000;HASH(minute);HASH(m->head);HASH(m->count);
       unsigned bindings[]={it->binding,it->binding2,it->binding3};
@@ -644,6 +664,7 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   lv_obj_t *battery=box(root,SCREEN_WIDTH-UI_MARGIN-78,UI_MARGIN+6,72,27,GRID,5);
   battery_fill=box(battery,3,3,1,21,colors[0],2);
   charging=box(battery,27,3,18,21,GRID,2);
+  lv_obj_set_style_bg_opa(charging,LV_OPA_TRANSP,0);
   lv_obj_add_event_cb(charging,draw_charging,LV_EVENT_DRAW_MAIN,NULL);
   box(root,SCREEN_WIDTH-UI_MARGIN-5,UI_MARGIN+13,5,13,GRID,1);
   }
@@ -685,6 +706,19 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
     lv_obj_set_style_bg_opa(segment,(active?UI_PAGE_RAIL_ACTIVE_OPACITY:UI_PAGE_RAIL_IDLE_OPACITY)*255/100,0);
   }
   if(m->ota){lv_obj_t *o=box(root,32,300,416,160,CARD,20);label(o,16,24,384,110,"正在更新\n请保持供电",&zh32,colors[0]);}
+  const media_notice *notice=media_current(&media);
+  if(notice&&!media.suspended&&!m->ota){
+    lv_obj_t *overlay=box(root,0,0,480,854,BG,0);
+    label(overlay,24,28,432,88,notice->title,&zh32,INK);
+    int text_top=124;
+    if(media.width&&media.height){
+      int image_height=notice->text[0]?420:648;
+      picture(overlay,&media_image_descriptor,media.pixels,media.width,media.height,16,112,448,image_height,false);
+      text_top=112+image_height+12;
+    }
+    if(notice->text[0])label(overlay,24,text_top,432,790-text_top,notice->text,&zh32,INK);
+    if(notice->confirm)label(overlay,24,802,432,40,english?"Tap the front button to confirm":"轻触前面按键确认",&zh32,MUTED);
+  }
   }
   return changed;
 }

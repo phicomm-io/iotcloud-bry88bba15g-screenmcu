@@ -51,6 +51,8 @@
     "SWM341_StdPeriph_Driver/CSL/SWM341_StdPeriph_Driver/SWM341_uart.c": "ec30283f8636994a1ffe0d304076c81014cc724266af797170e63692f10010a1",
     "SWM341_StdPeriph_Driver/CSL/SWM341_StdPeriph_Driver/SWM341_uart.h": "e0a43c6f3b00dcd80916039dcc3dbfa829a8a83153d21f0f999549ea84058c02",
     "SWM341_StdPeriph_Driver/CSL/SWM341_StdPeriph_Driver/SWM341_flash.c": "dbdc5c8442ce2eb6e033c865da25a79b1725cde4ffd53561d600c15ff65b06d1",
-    "SWM341_StdPeriph_Driver/CSL/SWM341_StdPeriph_Driver/SWM341_flash.h": "a856c5df23b644041821c330fcd38c3b009a67f1ad12057788ea8484d9f207f3"
+    "SWM341_StdPeriph_Driver/CSL/SWM341_StdPeriph_Driver/SWM341_flash.h": "a856c5df23b644041821c330fcd38c3b009a67f1ad12057788ea8484d9f207f3",
+    "SWM341_StdPeriph_Driver/CSL/SWM341_StdPeriph_Driver/SWM341_jpeg.c": "8eb905357be49130a7e6e2e84b08579ba0f33e321b03033e739d3fadff854640",
+    "SWM341_StdPeriph_Driver/CSL/SWM341_StdPeriph_Driver/SWM341_jpeg.h": "db535f49abc7286d717cc37b818c00f8632a8302654aedc48f63845bbf3a57b1"
   }
 }

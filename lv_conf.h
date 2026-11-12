@@ -20,7 +20,7 @@
 #define LV_USE_CHART 0
 #define LV_USE_CHECKBOX 0
 #define LV_USE_DROPDOWN 0
-#define LV_USE_IMG 0
+#define LV_USE_IMG 1
 #define LV_USE_IMGBTN 0
 #define LV_USE_KEYBOARD 0
 #define LV_USE_LED 0

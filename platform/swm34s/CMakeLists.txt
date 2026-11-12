@@ -28,10 +28,13 @@ string(REPLACE "\tSYS->PLLDIV &=" "\tdelay_3ms();\n\tSYS->PLLCR = (SYS->PLLCR | 
 string(REPLACE "while(SYS->PLLLOCK == 0);" "unsigned locked=0; for(volatile unsigned budget=2000000; budget && locked<2; --budget) { locked=SYS->PLLLOCK ? locked+1 : 0; } if(locked<2) { return; }" SYSTEM_SOURCE "${SYSTEM_SOURCE}")
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/system_SWM341.c "${SYSTEM_SOURCE}")
 set(DRIVERS)
+execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/prepare_jpeg_driver.py
+ ${CSL}/SWM341_StdPeriph_Driver/SWM341_jpeg.c ${CMAKE_CURRENT_BINARY_DIR}/SWM341_jpeg.c
+ COMMAND_ERROR_IS_FATAL ANY)
 foreach(name port gpio uart lcd pwm adc flash timr)
  list(APPEND DRIVERS ${CSL}/SWM341_StdPeriph_Driver/SWM341_${name}.c)
 endforeach()
-add_executable(screen_firmware startup.S board.c rtc_bus.c application.c ${CMAKE_CURRENT_BINARY_DIR}/system_SWM341.c ${DRIVERS}
+add_executable(screen_firmware startup.S board.c rtc_bus.c application.c jpeg_board.c ${CMAKE_CURRENT_BINARY_DIR}/SWM341_jpeg.c ${CMAKE_CURRENT_BINARY_DIR}/system_SWM341.c ${DRIVERS}
  ${CMAKE_SOURCE_DIR}/src/ui.c ${CMAKE_SOURCE_DIR}/src/startup_ui.c ${CMAKE_SOURCE_DIR}/src/responsive_font.c ${CMAKE_SOURCE_DIR}/src/fonts/metric_font.c ${CMAKE_SOURCE_DIR}/src/fonts/clock_font.c ${CMAKE_SOURCE_DIR}/src/fonts/zh16.c ${CMAKE_SOURCE_DIR}/src/fonts/zh32.c ${CMAKE_SOURCE_DIR}/src/fonts/clock72.c)
 target_include_directories(screen_firmware PRIVATE . ${CMAKE_BINARY_DIR} ${CSL}/CMSIS/CoreSupport ${CSL}/CMSIS/DeviceSupport ${CSL}/SWM341_StdPeriph_Driver)
 target_compile_definitions(screen_firmware PRIVATE SWM341)

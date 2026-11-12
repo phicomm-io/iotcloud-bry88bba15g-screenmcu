@@ -12,6 +12,8 @@
 #include "sensor_rx.h"
 #include "startup_ui.h"
 #include "display_diag.h"
+#include "media.h"
+#include "stream.h"
 #include <errno.h>
 #include <math.h>
 #include <stdlib.h>
@@ -260,6 +262,7 @@ static void diagnostic_notice(void) {
   if (n)
     board_send(NULL, wire, n);
 }
+#include "media_board.inc"
 static void pump(void) {
   for (unsigned budget = 0; budget < 4096; budget++) {
     int c = board_receive();
@@ -270,8 +273,12 @@ static void pump(void) {
       maintenance_init(&maintenance);
       continue;
     }
-    maintenance_feed(&maintenance, c, board_ms);
+    /* Factory OTA owns raw bytes exclusively; the zero-delimited media
+     * decoder consumes every binary byte before the maintenance text parser. */
+    if(maintenance.state||!media_feed(&media_uart,(unsigned)c,board_ms))
+      maintenance_feed(&maintenance, c, board_ms);
   }
+  media_board_link_poll();
   maintenance_tick(&maintenance, board_ms);
   /* The recovery service runs without SDRAM or the normal key owner. Keep
    * long-press shutdown available, but ignore presses during a transfer. */
@@ -296,6 +303,10 @@ static void pump(void) {
         (unsigned long)board_inherited_watchdog.clock,
         (unsigned long)board_inherited_watchdog.reset_status);
     board_send(NULL, notice, (size_t)n);
+    if(!maintenance.state){
+      n=snprintf(notice,sizeof(notice),"screen_media 1 %08lx %u 15 %lu\r\n",(unsigned long)guard.session,mode,(unsigned long)media_link_state.rate);
+      board_send(NULL,notice,(size_t)n);
+    }
     if (running_md5[0]) {
       n = snprintf(notice, sizeof(notice), "screen_image 1 %s\r\n", running_md5);
       board_send(NULL, notice, (size_t)n);
@@ -558,12 +569,15 @@ static void power_tick_board(void) {
   bool reminder = runtime.reminder_wake;
   unsigned reminder_page = runtime.model.page;
   runtime.reminder_wake = false;
-  if (!extended && power.asleep && !runtime.model.asleep) {
+  if (!extended && power.asleep && !runtime.model.asleep && !media_current(&media)) {
     power.asleep = false;
     power.idle = power.dnd_idle = 0;
   }
   bool front_down = !GPIO_GetBit(GPIOD, 11), rear_down = !GPIO_GetBit(GPIOD, 13);
   bool activity = front_down || rear_down || power.front || power.rear;
+  bool notification=media_current(&media)&&media.presented&&!media.suspended;
+  bool confirmed=notification&&power.front&&!front_down&&!power.front_long&&media_touch(&media);
+  if(notification)activity=false;
   if (extended) {
     uint8_t pages = 0;
     for (unsigned i = 0; i < runtime.model.scene.pages; i++)
@@ -577,7 +591,7 @@ static void power_tick_board(void) {
   unsigned event =
       power_tick(&power, !GPIO_GetBit(GPIOD, 11), !GPIO_GetBit(GPIOD, 13),
                  runtime.model.charging, runtime.model.dnd);
-  if (event & POWER_PAGE)
+  if ((event & POWER_PAGE) && !confirmed)
     screen_event(&runtime.model, 1);
   if (event & POWER_PROVISION)
     factory_provision(&factory);
@@ -595,7 +609,7 @@ static void power_tick_board(void) {
     display_step(&runtime.display, board_ms,
                   runtime.model.clock_valid ? runtime.clock_epoch : 0,
                   runtime.timezone, !runtime.model.charging, power.brightness,
-                  pages, &runtime.model.page, (event & POWER_WAKE) || reminder,
+                  pages, &runtime.model.page, ((!notification&&!confirmed)&&(event & POWER_WAKE)) || reminder,
                   activity, power.ota);
     if (reminder) runtime.model.page = reminder_page;
     power.asleep = runtime.display.sleeping;
@@ -603,6 +617,13 @@ static void power_tick_board(void) {
   runtime.model.asleep = power.ota ? false : power.asleep;
   unsigned target = extended ? runtime.display.target : power.asleep ? 0 : power.brightness;
   unsigned ceiling = extended ? runtime.display.policy.ceiling : 100;
+  const media_notice *notice=media_current(&media);
+  if(notice&&!media.suspended&&!power.ota){
+    runtime.model.asleep=false;
+    if(target<notice->brightness)target=notice->brightness;
+    board_backlight(power_backlight_target(target,ceiling,false,false));
+    return;
+  }
   board_backlight(power_backlight_target(target, ceiling, power.asleep, power.ota));
 }
 static void resource_service(void *c) {
@@ -645,6 +666,7 @@ void screen_start(void) {
   guard.restart = guard_restart;
   guard.nor_mode = board_nor_mode;
   guard_init(&guard, board_nonce(NULL), board_ms, forced);
+  media_link_state.rate=115200;media_uart.packet=media_board_packet;
   /* Hold the original power latch throughout the UART recovery window. No
    * LCD, SDRAM, sensor or factory-business initialization has run yet. */
   GPIO_SetBit(GPIOM, 7);
@@ -687,6 +709,8 @@ void screen_start(void) {
     *to++ = 0;
   memset(framebuffer, 0, sizeof(framebuffer));
   screen_runtime_init(&runtime);
+  media_init(&media);media.decode=board_jpeg_decode;
+  stream_init(&stream);stream.decode=board_jpeg_decode;stream.send=media_board_socket;
   runtime.send = board_send;
   runtime.factory = factory_line;
   runtime.context = &factory;
@@ -769,6 +793,13 @@ void screen_start(void) {
     display_diag_poll();
     uint32_t now = board_ms;
     screen_runtime_tick(&runtime, now);
+    bool media_busy=maintenance.state||wallpaper.active||font_bank.active;
+    media_tick(&media,now,power.asleep||
+      (runtime.display.configured?runtime.display.target==0:power.brightness==0),media_busy);
+    bool stream_visible=false;
+    for(unsigned i=0;i<runtime.model.scene.count;i++)
+      if(runtime.model.scene.item[i].page==runtime.model.page&&runtime.model.scene.item[i].type==SC_IMAGE)stream_visible=true;
+    stream_poll(&stream,now,stream_visible&&!power.asleep&&!media_current(&media)&&!media_busy,media_link_state.ready);
     control_check();
     if (!maintenance.state) {
       font_bank_poll(&font_bank);
@@ -835,7 +866,8 @@ void screen_start(void) {
       runtime.model.battery_valid = mv > 0;
       runtime.model.battery_percent = battery_permille(mv) / 10;
     }
-    if (diag_redraw || (int32_t)(now - next_render) >= 0 ||
+    static uint32_t rendered_media,rendered_stream;
+    if (rendered_media!=media.revision||rendered_stream!=stream.revision||diag_redraw || (int32_t)(now - next_render) >= 0 ||
         rendered_page != runtime.model.page ||
         rendered_asleep != runtime.model.asleep ||
         rendered_layout != runtime.model.scene.revision ||
@@ -847,6 +879,7 @@ void screen_start(void) {
         screen_diag_begin(&display_diagnostics,runtime.model.page+1,board_time_us());
       if(diag_redraw){lv_obj_invalidate(lv_scr_act());diag_redraw=false;}
       next_render = now + 1000;
+      rendered_media=media.revision;rendered_stream=stream.revision;
       rendered_page = runtime.model.page;
       rendered_asleep = runtime.model.asleep;
       rendered_layout = runtime.model.scene.revision;
@@ -859,6 +892,7 @@ void screen_start(void) {
     }
     screen_startup_ui(&runtime.model,board_ms);
     lv_timer_handler();
+    if(media_current(&media)&&!runtime.model.asleep&&!runtime.model.ota&&board_backlight_percent())media_present(&media);
     control_check();
     stage(STAGE_NORMAL);
     board_watchdog_feed();
