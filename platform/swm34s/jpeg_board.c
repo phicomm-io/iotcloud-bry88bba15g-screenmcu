@@ -3,7 +3,11 @@
 #include "jpeg_image.h"
 #include <string.h>
 static uint8_t diagnostic[4];
+static uint32_t registers[16];
 void board_jpeg_status(uint8_t out[4]) { memcpy(out, diagnostic, 4); }
+void board_jpeg_registers(uint8_t out[MEDIA_DECODER_DETAIL_BYTES]) {
+  memcpy(out, registers, sizeof(registers));
+}
 static void reset_decoder(void) {
   SYS->PRSTEN = 0x55;
   SYS->PRSTR1 |= SYS_PRSTR1_JPEG_Msk;
@@ -66,6 +70,12 @@ bool board_jpeg_decode(void *context, const uint8_t *p, size_t n,
   reset_decoder();
   JPEG_InitStructure init = {0};
   JPEG_Init(JPEG, &init);
+  /* Poll the peripheral's completion/error flags without entering its IRQ. */
+  NVIC_ClearPendingIRQ(JPEG_IRQn);
+  JPEG->IR = JPEG_IR_ICDONE_Msk | JPEG_IR_ICERROR_Msk | JPEG_IR_ICEMPTY_Msk |
+             JPEG_IR_IEDONE_Msk | JPEG_IR_IEERROR_Msk;
+  registers[11] = JPEG->SR;
+  registers[12] = JPEG->IR;
   jpeg_outset_t setting = {
       .format = JPEG_OUT_RGB565, .RGBAddr = (uint32_t)out, .RGBWidth = stride};
   __DSB();
@@ -83,8 +93,7 @@ bool board_jpeg_decode(void *context, const uint8_t *p, size_t n,
     if ((flags & JPEG_IR_IFERROR_Msk) ||
         (status & (JPEG_SR_CUOVR_Msk | JPEG_SR_REIMERR_Msk)))
       break;
-    if ((flags & JPEG_IR_IFDONE_Msk) &&
-        !(status & (JPEG_SR_BUSY_Msk | JPEG_SR_DMAWRBUSY_Msk))) {
+    if ((flags & JPEG_IR_IFDONE_Msk) && !(status & JPEG_SR_BUSY_Msk)) {
       ok = true;
       break;
     }
@@ -95,6 +104,21 @@ bool board_jpeg_decode(void *context, const uint8_t *p, size_t n,
     board_watchdog_feed();
   }
   __DSB();
+  registers[0] = JPEG->SR;
+  registers[1] = JPEG->IR;
+  registers[2] = JPEG->CR;
+  registers[3] = JPEG->CFG;
+  registers[4] = JPEG->CSBASE;
+  registers[5] = JPEG->RGBASE;
+  registers[6] = JPEG->CODLEN;
+  registers[7] = SYS->CLKEN1;
+  registers[8] = SYS->PRSTR1;
+  registers[9] = (uint32_t)out[0] | (uint32_t)out[1] << 16;
+  size_t probe = stride * j->height * 2u;
+  registers[10] = media_crc32(out, probe > 512 ? 512 : probe);
+  registers[13] = board_ms - start;
+  registers[14] = media_crc32(p + j->scan_offset, j->scan_bytes);
+  registers[15] = j->scan_offset;
   if (!ok)
     reset_decoder();
   return ok;
