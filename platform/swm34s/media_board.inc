@@ -143,6 +143,12 @@ static void media_board_packet(void *ctx, unsigned channel, uint32_t session,
 }
 static void media_board_link_poll(void) {
   uint32_t now = board_ms;
+  // Raw OTA suspends media heartbeats and can run longer than their timeout.
+  // Keep its negotiated UART rate until the maintenance owner releases it.
+  if (maintenance.state) {
+    media_link_state.last_ping = now;
+    return;
+  }
   if (media_link_state.phase == 1 &&
       (int32_t)(now - media_link_state.switch_at) >= 0) {
     if (board_uart_baud(media_link_state.pending)) {
