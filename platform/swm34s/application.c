@@ -203,7 +203,9 @@ static uint32_t maintenance_clock(void *context) {
   return board_ms;
 }
 static void sensors_reset(void);
+static void media_board_maintenance_released(void);
 static void maintenance_activity(void *context, bool active) {
+  if (!active) media_board_maintenance_released();
   (void)context;
   if (normal_ready) {
     if (active) {

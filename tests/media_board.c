@@ -39,6 +39,8 @@ int main(void) {
     assert(!media_socket_tx.size);
   }
   maintenance.state = 0;
+  board_ms += 40000;
+  media_board_maintenance_released();
   board_ms += 9999; media_board_link_poll();
   assert(!baud_changes && media_link_state.ready);
   board_ms += 2; media_board_link_poll();

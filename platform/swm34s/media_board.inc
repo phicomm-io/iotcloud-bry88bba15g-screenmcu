@@ -141,6 +141,11 @@ static void media_board_packet(void *ctx, unsigned channel, uint32_t session,
       media_board_send(MEDIA_SOCKET_ACK, sequence, p, n < 5 ? n : 5);
   }
 }
+static void media_board_maintenance_released(void) {
+  // A synchronous NOR rehash can finish the last two OTA phases in one pump.
+  // Give the media owner a fresh heartbeat grace period even in that case.
+  media_link_state.last_ping = board_ms;
+}
 static void media_board_link_poll(void) {
   uint32_t now = board_ms;
   // Raw OTA suspends media heartbeats and can run longer than their timeout.
