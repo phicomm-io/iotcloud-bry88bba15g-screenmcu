@@ -18,9 +18,11 @@ static screen_model model;
 static lv_area_t probe;
 static uint16_t frame[SCREEN_WIDTH*SCREEN_HEIGHT],image[SCREEN_WIDTH*SCREEN_HEIGHT];
 static unsigned plotted;
+static unsigned flushed_pixels;
 static unsigned probe_color=0xb7dca5;
 static bool probing;
 static void flush(lv_disp_drv_t *d,const lv_area_t *a,lv_color_t *p) {
+ flushed_pixels+=lv_area_get_width(a)*lv_area_get_height(a);
  for(int y=a->y1;y<=a->y2;y++)for(int x=a->x1;x<=a->x2;x++)frame[y*480+x]=p[(y-a->y1)*lv_area_get_width(a)+x-a->x1].full;
  if(probing) {
   lv_color_t color=lv_color_hex(probe_color);
@@ -91,6 +93,25 @@ static void media_and_battery(void) {
  assert(lv_obj_get_style_bg_opa(charging,0)==LV_OPA_TRANSP);
  assert(frame[28*480+417]==lv_color_hex(appearance_color(&model.appearance,AP_CHART_A)).full);
  artifact("camera-contain-charging-after");
+ lv_obj_t *camera=NULL;
+ for(unsigned i=0;i<lv_obj_get_child_cnt(lv_scr_act());i++) {
+  lv_obj_t *o=lv_obj_get_child(lv_scr_act(),i);
+  if(lv_obj_get_y(o)==UI_GRID_TOP)camera=o;
+ }
+ assert(camera);lv_obj_t *clip=lv_obj_get_child(camera,0),*camera_image=lv_obj_get_child(clip,0);
+ assert(camera_image&&lv_obj_check_type(camera_image,&lv_img_class));
+ for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0x07e0;
+ stream.revision++;flushed_pixels=0;
+ assert(screen_ui(&model,120001,false));draw();
+ assert(lv_obj_get_child(camera,0)==clip&&lv_obj_get_child(clip,0)==camera_image);
+ assert(frame[480*480+240]==0x07e0&&flushed_pixels>100000&&flushed_pixels<220000);
+ /* A changed resolution rebuilds the image and recomputes its fit. */
+ stream.width=480;stream.height=360;stream.revision++;
+ for(unsigned i=0;i<480*360;i++)stream.pixels[i]=0x001f;
+ assert(screen_ui(&model,120002,false));draw();
+ camera_image=lv_obj_get_child(lv_obj_get_child(camera,0),0);
+ assert(lv_obj_get_width(camera_image)==480&&lv_obj_get_height(camera_image)==360);
+ assert(frame[480*480+240]==0x001f);
  /* Reproduce the old style with the same renderer for the comparison. */
  lv_obj_set_style_bg_opa(charging,LV_OPA_COVER,0);draw();
  assert(frame[28*480+417]==lv_color_hex(appearance_color(&model.appearance,AP_LINE)).full);artifact("charging-before");

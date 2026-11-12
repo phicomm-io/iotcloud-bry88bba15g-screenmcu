@@ -477,6 +477,18 @@ static void chart(lv_obj_t *c,const screen_model *m,const scene_item *it,
   }
 }
 static lv_obj_t *component(lv_obj_t *root,const screen_model *m,const scene_item *it,uint32_t now,lv_obj_t *existing) {
+  if(existing&&it->type==SC_IMAGE&&stream.width&&stream.height) {
+    lv_obj_t *clip=lv_obj_get_child(existing,-1);
+    lv_obj_t *image=clip?lv_obj_get_child(clip,0):NULL;
+    if(image&&lv_obj_check_type(image,&lv_img_class)&&
+       lv_obj_get_width(image)==(int)stream.width&&lv_obj_get_height(image)==(int)stream.height) {
+      /* The decoded arena changes in place. Keep the card and its letterbox
+       * intact; invalidate only the transformed image's visible bounds. */
+      lv_img_cache_invalidate_src(&stream_image_descriptor);
+      lv_obj_invalidate(image);
+      return existing;
+    }
+  }
   int x=UI_MARGIN+it->x*UI_COLUMN_PITCH,y=UI_GRID_TOP+it->y*UI_ROW_PITCH;
   int w=it->w*UI_COLUMN_PITCH-UI_GRID_GAP,h=it->h*UI_ROW_PITCH-UI_GRID_GAP;
   bool clock=it->type==SC_CLOCK;
