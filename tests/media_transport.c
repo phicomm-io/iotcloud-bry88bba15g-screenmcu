@@ -7,7 +7,33 @@ static void packet(void *ctx,unsigned ch,uint32_t session,uint32_t seq,const uin
   (void)ctx;assert(ch==MEDIA_COMMAND&&session==0x12340001&&seq==27);
   assert(n==sizeof(expected)&&!memcmp(p,expected,n));calls++;
 }
+/* Independent bitwise oracle checks the optimized CRC across empty input,
+ * all byte values, unaligned starts and both UART and full RGB frame lengths. */
+static uint32_t reference_crc(const uint8_t *p, size_t n) {
+  uint32_t c = ~0u;
+  while (n--) {
+    c ^= *p++;
+    for (unsigned bit = 0; bit < 8; bit++)
+      c = (c >> 1) ^ ((c & 1u) ? 0xedb88320u : 0u);
+  }
+  return ~c;
+}
+static void crc_vectors(void) {
+  static uint8_t pixels[480u * 854u * 2u + 4u];
+  assert(media_crc32(NULL, 0) == 0);
+  assert(media_crc32("123456789", 9) == 0xcbf43926u);
+  for (unsigned i = 0; i < sizeof(pixels); i++)
+    pixels[i] = (uint8_t)(i * 73u + (i >> 8));
+  const size_t lengths[] = {0, 1, 2, 3, 4, 17, 255, 256, 511, 512,
+                            MEDIA_PACKET_MAX, 320u * 240u * 2u,
+                            480u * 854u * 2u};
+  for (unsigned offset = 0; offset < 4; offset++)
+    for (unsigned i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++)
+      assert(media_crc32(pixels + offset, lengths[i]) ==
+             reference_crc(pixels + offset, lengths[i]));
+}
 int main(void) {
+  crc_vectors();
   media_parser parser={.packet=packet};uint8_t wire[1400];
   for(unsigned i=0;i<sizeof(expected);i++)expected[i]=i;
   size_t n=media_encode(wire,sizeof(wire),MEDIA_COMMAND,0x12340001,27,expected,sizeof(expected));assert(n);

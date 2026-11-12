@@ -326,7 +326,6 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
       memcpy(q->title, title_value, sizeof(q->title));
       memcpy(q->text, text_value, sizeof(q->text));
       memcpy(q->source, source, sizeof(q->source));
-      q->source_crc = media_crc32(source, sizeof(q->source));
       q->wake = p[13] & 1;
       q->confirm = (p[13] >> 1) & 1;
       q->brightness = p[14];
@@ -369,7 +368,6 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
     memcpy(q->text, text_value, sizeof(q->text));
     if (remote) {
       memcpy(q->source, source, sizeof(q->source));
-      q->source_crc = media_crc32(source, sizeof(q->source));
     }
     m->last_push_id = q->id;
     remember(m, q);
