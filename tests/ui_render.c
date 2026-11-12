@@ -115,6 +115,17 @@ static void media_and_battery(void) {
   }
   charging=lv_obj_get_child(battery,1);
   clip=lv_obj_get_child(camera,0);camera_image=lv_obj_get_child(clip,0);
+  lv_area_t covered={240,480,249,489},letterbox={30,UI_GRID_TOP+30,39,UI_GRID_TOP+39};
+  lv_cover_check_info_t coverage={LV_COVER_RES_NOT_COVER,&covered};
+  lv_event_send(clip,LV_EVENT_COVER_CHECK,&coverage);assert(coverage.res==LV_COVER_RES_COVER);
+  coverage=(lv_cover_check_info_t){LV_COVER_RES_NOT_COVER,&letterbox};
+  lv_event_send(clip,LV_EVENT_COVER_CHECK,&coverage);assert(coverage.res==LV_COVER_RES_NOT_COVER);
+  lv_obj_set_style_img_opa(camera_image,128,0);
+  coverage=(lv_cover_check_info_t){LV_COVER_RES_NOT_COVER,&covered};
+  lv_event_send(clip,LV_EVENT_COVER_CHECK,&coverage);assert(coverage.res==LV_COVER_RES_NOT_COVER);
+  lv_obj_set_style_img_opa(camera_image,LV_OPA_COVER,0);
+  coverage=(lv_cover_check_info_t){LV_COVER_RES_MASKED,&covered};
+  lv_event_send(clip,LV_EVENT_COVER_CHECK,&coverage);assert(coverage.res==LV_COVER_RES_MASKED);
  for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0x07e0;
  stream.revision++;flushed_pixels=0;
  assert(screen_ui(&model,120001,false));draw();

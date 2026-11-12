@@ -23,10 +23,37 @@ static const appearance_item *custom;
 static bool have_wallpaper;
 static lv_obj_t *box(lv_obj_t *,int,int,int,int,unsigned,int);
 static lv_img_dsc_t media_image_descriptor,stream_image_descriptor;
+static void picture_cover(lv_event_t *event) {
+  lv_cover_check_info_t *info=lv_event_get_param(event);
+  if(info->res==LV_COVER_RES_MASKED)return;
+  lv_obj_t *image=lv_obj_get_child(lv_event_get_target(event),0);
+  if(!image||!lv_obj_check_type(image,&lv_img_class)||
+     lv_img_get_angle(image)||lv_img_get_antialias(image)||
+     lv_obj_get_style_img_opa(image,0)!=LV_OPA_COVER||
+     lv_obj_get_style_opa(image,0)!=LV_OPA_COVER)return;
+  const lv_img_dsc_t *descriptor=lv_img_get_src(image);
+  unsigned zoom=lv_img_get_zoom(image);
+  if(!zoom||!descriptor||descriptor->header.cf!=LV_IMG_CF_TRUE_COLOR)return;
+  lv_area_t coords;lv_obj_get_coords(image,&coords);
+  lv_point_t pivot;lv_img_get_pivot(image,&pivot);
+  int32_t inverse=65536/zoom;
+  /* Check the exact nearest-neighbor samples, excluding transformed padding.
+   * This clip may cover opaque image pixels while its letterbox stays clear.
+   * LVGL 8's scaled image object retains unscaled bounds during top-object
+   * search, so the clip supplies this conservative coverage information. */
+  const lv_area_t *area=info->area;
+  int32_t x1=((area->x1-coords.x1-pivot.x)*inverse+pivot.x*256+128)>>8;
+  int32_t x2=((area->x2-coords.x1-pivot.x)*inverse+pivot.x*256+128)>>8;
+  int32_t y1=((area->y1-coords.y1-pivot.y)*inverse+pivot.y*256+128)>>8;
+  int32_t y2=((area->y2-coords.y1-pivot.y)*inverse+pivot.y*256+128)>>8;
+  if(x1>=0&&y1>=0&&x2<(int32_t)descriptor->header.w&&y2<(int32_t)descriptor->header.h)
+    info->res=LV_COVER_RES_COVER;
+}
 static void picture(lv_obj_t *parent,lv_img_dsc_t *descriptor,const uint16_t *pixels,unsigned width,unsigned height,int x,int y,int w,int h,bool cover){
   if(!width||!height||w<=0||h<=0)return;
   lv_obj_t *clip=box(parent,x,y,w,h,0,0);
   lv_obj_set_style_bg_opa(clip,LV_OPA_TRANSP,0);
+  lv_obj_add_event_cb(clip,picture_cover,LV_EVENT_COVER_CHECK,NULL);
   *descriptor=(lv_img_dsc_t){.header={.cf=LV_IMG_CF_TRUE_COLOR,.w=width,.h=height},.data_size=width*height*2u,.data=(const uint8_t *)pixels};
   lv_obj_t *image=lv_img_create(clip);lv_img_set_src(image,descriptor);
   unsigned a=(unsigned)w*256/width,b=(unsigned)h*256/height,zoom=cover?(a>b?a:b):(a<b?a:b);

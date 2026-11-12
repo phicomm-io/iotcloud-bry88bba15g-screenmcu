@@ -9,7 +9,10 @@ software renderer. Native frame comparisons cover these fallbacks.
 
 The camera card and its letterbox are fully transparent, revealing the existing
 page wallpaper or canvas. Image pixels remain opaque. The WebUI preview uses
-the same geometry and transparency. Notification back cards precompose their
+the same geometry and transparency. The transparent image clip reports coverage
+only where exact nearest-neighbor source samples are opaque. LVGL can skip the
+wallpaper beneath those pixels while still drawing through the letterbox.
+Notification back cards precompose their
 decorative alpha into solid RGB565 colors once at creation, retaining their
 rounded stacked shape. The charging glyph has a transparent background.
 
@@ -69,6 +72,8 @@ page latency and control/sensor health when assessing further acceleration.
 摄像头卡片和图片四周留白完全透明，透出页面壁纸或底色；画面像素仍为不透明
 RGB565。网页预览同步透明度和尺寸。通知叠层在创建时预先计算实色，保留圆角
 和层次；充电闪电保持透明背景。
+图像裁剪容器只在采样确定为不透明的像素范围内声明覆盖，让 LVGL 跳过图像下方
+的壁纸绘制；留白区域继续透出背景。半透明图像和已有遮罩不声明这种覆盖。
 
 当前默认启用 DMA2D，单份 40 行活动缓冲串行完成绘制和搬运，每 64 字保留
 512 个时钟间隔，完成中断唤醒等待的 CPU。实机已反馈这种串行路径不再抖动。

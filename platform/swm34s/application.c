@@ -930,7 +930,7 @@ void screen_start(void) {
     screen_startup_ui(&runtime.model,board_ms);
     lv_timer_handler();
     /* Complete the final strip before reporting presentation or starting the
-     * next foreground media decode. Earlier strips overlap LVGL drawing. */
+     * next foreground media decode. Strip drawing and DMA remain serialized. */
     while (!display_flush_poll()) { board_watchdog_feed(); board_idle(); }
     if(media_current(&media)&&!runtime.model.asleep&&!runtime.model.ota&&board_backlight_percent())media_present(&media);
     control_check();
