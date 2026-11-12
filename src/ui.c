@@ -26,7 +26,7 @@ static lv_img_dsc_t media_image_descriptor,stream_image_descriptor;
 static void picture(lv_obj_t *parent,lv_img_dsc_t *descriptor,const uint16_t *pixels,unsigned width,unsigned height,int x,int y,int w,int h,bool cover){
   if(!width||!height||w<=0||h<=0)return;
   lv_obj_t *clip=box(parent,x,y,w,h,0,0);
-  lv_obj_set_style_bg_color(clip,lv_obj_get_style_bg_color(parent,0),0);
+  lv_obj_set_style_bg_opa(clip,LV_OPA_TRANSP,0);
   *descriptor=(lv_img_dsc_t){.header={.cf=LV_IMG_CF_TRUE_COLOR,.w=width,.h=height},.data_size=width*height*2u,.data=(const uint8_t *)pixels};
   lv_obj_t *image=lv_img_create(clip);lv_img_set_src(image,descriptor);
   unsigned a=(unsigned)w*256/width,b=(unsigned)h*256/height,zoom=cover?(a>b?a:b):(a<b?a:b);
@@ -496,9 +496,9 @@ static lv_obj_t *component(lv_obj_t *root,const screen_model *m,const scene_item
   lv_obj_t *c=existing?existing:box(root,x,y,w,h,wc(0),12);
   reuse_labels=(clock||it->type==SC_VALUE)?c:NULL;reuse_index=0;
   if(existing&&!reuse_labels)lv_obj_clean(c);
-  unsigned alpha=it->type==SC_IMAGE?100:appearance_opacity(appearance,custom,it->type,it->h,have_wallpaper);
+  unsigned alpha=it->type==SC_IMAGE?0:appearance_opacity(appearance,custom,it->type,it->h,have_wallpaper);
   lv_obj_set_style_bg_opa(c,alpha*255/100,0);
-  if(have_wallpaper) {lv_obj_set_style_border_width(c,1,0);lv_obj_set_style_border_color(c,lv_color_hex(appearance_color(appearance,AP_LINE)),0);lv_obj_set_style_border_opa(c,alpha*100/100,0);}
+  if(have_wallpaper) {lv_obj_set_style_border_width(c,it->type==SC_IMAGE?0:1,0);lv_obj_set_style_border_color(c,lv_color_hex(appearance_color(appearance,AP_LINE)),0);lv_obj_set_style_border_opa(c,alpha*100/100,0);}
   int pad=clock?0:12;w-=pad*2;h-=24;
   lv_obj_set_style_pad_left(c,pad,0);lv_obj_set_style_pad_top(c,12,0);
   const scene_data *d=data_for(m,it->id);bool fresh=scene_data_fresh(d,now);

@@ -22,8 +22,8 @@ reads bounded trace batches and exports the collected report locally.
   of the physical VSYNC pin. PB2 is the reconstructed VSYNC route and PB5 DCLK;
   check the actual board before probing.
 - The `flush_cb` records its rectangle, starting microseconds, completion
-  duration, pixel count and last-flush marker. Two 40-row draw buffers overlap
-  CPU drawing and DMA2D copies; completion releases each borrowed buffer once.
+  duration, pixel count and last-flush marker. One active 40-row draw buffer
+  serializes CPU drawing and DMA2D copies; completion releases it once.
   No per-block UART logging is added. See [media rendering](MEDIA-PERFORMANCE.md).
 - `monitor_cb` records LVGL refresh milliseconds and pixels after each round.
   SysTick advances LVGL during drawing; incrementing its clock only from the
@@ -37,7 +37,7 @@ reads bounded trace batches and exports the collected report locally.
 
 刷新为同步拷贝时，flush 耗时包含实际拷贝。两次 flush 之间的间隔包含绘制和调度，
 不能直接当作 VSYNC 等待。多轮 monitor 需合计，并检查 `dropped` 后再分析区域。
-媒体版本使用双条带缓冲和 DMA2D；下方早期测量保留当时的同步 CPU 拷贝条件。
+媒体版本使用单份活动条带缓冲和 DMA2D，双完整帧保留逐行脏区；下方早期测量保留当时的同步 CPU 拷贝条件。
 媒体版本的当前扫描与双帧交换实现见 [媒体绘制](MEDIA-PERFORMANCE.md)：约 30 Hz
 连续扫描，完整画面在帧开始时切换；下面的 40 Hz 数字保留早期固件的测量条件。
 
@@ -73,7 +73,7 @@ does not wait for VSYNC. The reviewed stock driver uses two full framebuffers,
 updates the LCD layer address, requests a frame-boundary shadow reload and waits
 for completion. Its unbounded busy loop should not be copied into recovery-aware
 community firmware. The current media driver uses two full framebuffers with
-a bounded frame-start reload and synchronizes partial updates after the latch.
+a bounded frame-start reload and preserves unchanged stale spans before presenting.
 
 ## Device measurements / 真机测量（2026-11-07）
 

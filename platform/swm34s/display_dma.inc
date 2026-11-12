@@ -1,9 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Draw only into the back frame. Latch it at a hardware frame boundary, then
- * synchronize the dirty rectangle into the released frame before reuse. */
-#ifndef SCREEN_EXPERIMENTAL_DMA2D
-#define SCREEN_EXPERIMENTAL_DMA2D 0
+/* Draw only into the back frame. Before a frame-start latch, preserve only
+ * stale pixels that this refresh has not replaced. Never write scanout. */
+#ifndef SCREEN_DMA2D
+#define SCREEN_DMA2D 1
 #endif
+/* Half-open stale spans in the back frame. The current front is authoritative.
+ * A bounding span per row is conservative when a refresh has disjoint areas. */
+static struct { uint16_t x1, x2; } display_stale[854];
 static void copy_flush(const lv_area_t *a, const lv_color_t *p) {
   for (int y = a->y1; y <= a->y2; y++) {
     if (y >= 0 && y < 854 && a->x1 >= 0 && a->x2 < 480)
@@ -39,9 +42,7 @@ static void display_dma_move(const lv_color_t *source, lv_color_t *destination,
 static void display_dma_init(void) {
   display_dma_ready = display_dma_fault = false;
   display_dma_clock(false);
-  /* Live updates shake with DMA2D on this board, including small data
-   * changes. Keep the validated CPU path as the production default. */
-  if (!SCREEN_EXPERIMENTAL_DMA2D) return;
+  if (!SCREEN_DMA2D) return;
   display_dma_fault = true;
   display_dma_reset();
   /* Leave LCD enough time to refill its FIFO between 64-word blocks. */
@@ -68,11 +69,28 @@ static void display_dma_init(void) {
   display_dma_ready = true;
   display_dma_fault = false;
 }
-static void display_mirror_copy(void) {
-  for (int y = display_dirty.y1; y <= display_dirty.y2; y++)
-    lv_memcpy(framebuffer[display_front ^ 1u] + y * 480 + display_dirty.x1,
-           framebuffer[display_front] + y * 480 + display_dirty.x1,
-           lv_area_get_width(&display_dirty) * sizeof(lv_color_t));
+static void display_preserve_row(unsigned y, unsigned replaced_x1,
+                                 unsigned replaced_x2) {
+  unsigned x1 = display_stale[y].x1, x2 = display_stale[y].x2;
+  if (!x2) return;
+  unsigned left_end = x2 < replaced_x1 ? x2 : replaced_x1;
+  unsigned right_start = x1 > replaced_x2 ? x1 : replaced_x2;
+  lv_color_t *destination = framebuffer[display_front ^ 1u] + y * 480;
+  const lv_color_t *source = framebuffer[display_front] + y * 480;
+  if (x1 < left_end)
+    lv_memcpy(destination + x1, source + x1, (left_end - x1) * sizeof(*source));
+  if (right_start < x2)
+    lv_memcpy(destination + right_start, source + right_start,
+              (x2 - right_start) * sizeof(*source));
+  display_stale[y].x2 = 0;
+}
+static void display_preserve_strip(const lv_area_t *a) {
+  for (int y = a->y1; y <= a->y2; y++)
+    if (y >= 0 && y < 854 && a->x1 >= 0 && a->x2 < 480)
+      display_preserve_row(y, a->x1, a->x2 + 1);
+}
+static void display_preserve_remaining(void) {
+  for (unsigned y = 0; y < 854; y++) display_preserve_row(y, 480, 480);
 }
 static bool display_dma_done(void) {
   if (display_dma_ready && DMA2D_IsBusy()) {
@@ -81,8 +99,7 @@ static bool display_dma_done(void) {
     display_dma_reset();
     display_dma_ready = false;
     display_dma_fault = true;
-    if (pending_flush.phase == 2) display_mirror_copy();
-    else copy_flush(&pending_flush.area, pending_flush.pixels);
+    copy_flush(&pending_flush.area, pending_flush.pixels);
   }
   __DSB();
   return true;
@@ -91,7 +108,13 @@ static bool display_flush_poll(void) {
   if (!pending_flush.driver) return true;
   if (pending_flush.phase == 0) {
     if (!display_dma_done()) return false;
+    display_dma_clock(false);
+    /* DMA has finished. Preserve old content outside this strip's freshly
+     * written span, serially on the CPU to avoid DMA/LCD/CPU contention. */
+    display_preserve_strip(&pending_flush.area);
     if (pending_flush.last) {
+      display_preserve_remaining();
+      __DSB();
       board_display_present(framebuffer[display_front ^ 1u]);
       pending_flush.phase = 1;
       pending_flush.started_ms = board_ms;
@@ -106,14 +129,12 @@ static bool display_flush_poll(void) {
     /* VBPRELOAD has cleared: the old front is no longer owned by LCD. */
     __DSB();
     display_front ^= 1u;
-    pending_flush.phase = 2;
-    pending_flush.started_ms = board_ms;
-    /* Large SDRAM-to-SDRAM DMA mirrors disturb scanout on this board.
-     * Copy only this released frame on the CPU; strips still use DMA2D. */
-    display_mirror_copy();
-  }
-  if (pending_flush.phase == 2) {
-    if (!display_dma_done()) return false;
+    /* Leave the released frame stale. A repeated camera area or full redraw
+     * replaces these pixels directly, avoiding an entire extra frame copy. */
+    for (int y = display_dirty.y1; y <= display_dirty.y2; y++) {
+      display_stale[y].x1 = display_dirty.x1;
+      display_stale[y].x2 = display_dirty.x2 + 1;
+    }
     display_dirty_valid = false;
   }
   lv_area_t *a = &pending_flush.area;

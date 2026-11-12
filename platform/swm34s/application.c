@@ -38,8 +38,8 @@ const char firmware_identity[] =
 #ifdef SCREEN_UART2_QUIET
     "uart2=quiet;"
 #endif
-#if SCREEN_EXPERIMENTAL_DMA2D
-    "dma2d=experimental;"
+#if SCREEN_DMA2D
+    "dma2d=on;"
 #else
     "dma2d=off;"
 #endif

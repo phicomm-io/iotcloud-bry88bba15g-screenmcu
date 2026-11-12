@@ -101,6 +101,20 @@ static void media_and_battery(void) {
  }
  assert(camera);lv_obj_t *clip=lv_obj_get_child(camera,0),*camera_image=lv_obj_get_child(clip,0);
  assert(camera_image&&lv_obj_check_type(camera_image,&lv_img_class));
+  for(unsigned i=0;i<480*854;i++)image[i]=0x1234;
+  wallpaper.pixels=image;wallpaper.kind=1;wallpaper.ready=true;
+  model.appearance.wallpaper=1;model.appearance.dim=0;
+  assert(screen_ui(&model,120000,false));draw();
+  assert(frame[(UI_GRID_TOP+30)*480+30]==0x1234);
+  artifact("camera-transparent-wallpaper");
+  /* Find the rebuilt card after the appearance change. */
+  for(unsigned i=0;i<lv_obj_get_child_cnt(lv_scr_act());i++) {
+    lv_obj_t *o=lv_obj_get_child(lv_scr_act(),i);
+    if(lv_obj_get_y(o)==UI_GRID_TOP)camera=o;
+    if(lv_obj_get_x(o)==386&&lv_obj_get_y(o)==22&&lv_obj_get_width(o)==72)battery=o;
+  }
+  charging=lv_obj_get_child(battery,1);
+  clip=lv_obj_get_child(camera,0);camera_image=lv_obj_get_child(clip,0);
  for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0x07e0;
  stream.revision++;flushed_pixels=0;
  assert(screen_ui(&model,120001,false));draw();
@@ -118,6 +132,7 @@ static void media_and_battery(void) {
  assert(frame[28*480+417]==lv_color_hex(appearance_color(&model.appearance,AP_LINE)).full);artifact("charging-before");
  lv_obj_set_style_bg_opa(charging,LV_OPA_TRANSP,0);draw();artifact("charging-after");
  model.scene.item[0].image_fit=1;assert(screen_ui(&model,120000,false));draw();artifact("camera-cover");
+  wallpaper.ready=false;wallpaper.kind=0;model.appearance.wallpaper=0;
  media_init(&media);media.queue[0]=(media_notice){.id=1,.confirm=1,.state=PUSH_QUEUED};
  strcpy(media.queue[0].title,"External push");strcpy(media.queue[0].text,"Image and text");
  media.active=1;media.width=32;media.height=17;for(unsigned i=0;i<32*17;i++)media.pixels[i]=0xf800;

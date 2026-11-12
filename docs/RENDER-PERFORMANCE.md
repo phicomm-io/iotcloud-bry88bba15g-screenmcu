@@ -49,7 +49,7 @@ application uses approximately 190 of its 412 KiB Flash region; linked SDRAM
 allocation is approximately 4.06 MiB. Drawing reads validated RAM only, and
 resource failures latch a fallback. See [font resources](EXTERNAL-FONT.md).
 
-媒体版本已启用 JPEG 硬解、DMA2D、双条带和完整双帧交换，并将连续扫描降至约 30 Hz；
+媒体版本已启用 JPEG 硬解、串行 DMA2D、单条带和完整双帧交换，并将连续扫描降至约 30 Hz；
 见 [媒体绘制](MEDIA-PERFORMANCE.md)。硬件 FPU 尚未启用，传感器补偿运算顺序保持
 原样。壁纸加载已分批进行并有总时限，见 `APPEARANCE.md`。下方保留早期版本测量。
 
