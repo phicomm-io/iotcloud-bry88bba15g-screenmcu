@@ -42,7 +42,7 @@ int main(void){
  assert(s.ready);stream_poll(&s,1003,true,true);assert(s.frames==1&&s.width==32&&s.height==17);
  stream_poll(&s,1004,false,true);assert(s.state==STREAM_PAUSED&&!s.request_size);
  stream_poll(&s,1005,true,true);assert(s.state==STREAM_CONNECTING);stream_poll(&s,17006,true,true);assert(s.state==STREAM_BACKOFF&&s.error==822);
- stream_poll(&s,17007,true,false);assert(s.state==STREAM_PAUSED);uint8_t status[40];assert(stream_status(&s,status,40)==40&&media_u32(status+8)==1);
+ stream_poll(&s,17007,true,false);assert(s.state==STREAM_PAUSED);uint8_t status[MEDIA_STREAM_STATUS_BYTES];assert(stream_status(&s,status,sizeof(status))==sizeof(status)&&media_u32(status+8)==1);
  // Clearing a disabled source closes it and removes credentials. An enabled
  // empty URL is rejected without changing the current source.
  memset(cfg+7,0,384);cfg[6]=3;

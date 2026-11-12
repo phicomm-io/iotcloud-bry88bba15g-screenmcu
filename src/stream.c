@@ -8,7 +8,7 @@
 screen_stream stream;
 static bool decode_ready(screen_stream *s);
 static bool emit(screen_stream *s, unsigned op, const void *p, size_t n) {
-  uint8_t wire[MEDIA_PACKET_MAX];
+  uint8_t wire[MEDIA_CHUNK + 5];
   if (n > sizeof(wire) - 5 || !s->send)
     return false;
   wire[0] = op;
@@ -197,23 +197,34 @@ static bool parse_url(stream_url *s, const char *source, unsigned w, unsigned h,
       snprintf(s->path, sizeof(s->path), "%s%s", *p == '/' ? "" : "/", p);
   return size > 0 && (unsigned)size < sizeof(s->path);
 }
-unsigned stream_config(screen_stream *s, const uint8_t *p, size_t n) {
+static bool configuration(const uint8_t *p, size_t n, stream_url *candidate) {
   if (n != MEDIA_STREAM_CONFIG_BYTES || p[0] != MEDIA_STREAM_CONFIG ||
       p[6] > 3 || !memchr(p + 7, 0, 384) || !memchr(p + 391, 0, 64) ||
       !memchr(p + 455, 0, 64))
-    return MEDIA_RANGE;
+    return false;
   unsigned w = (unsigned)p[1] | (unsigned)p[2] << 8,
            h = (unsigned)p[3] | (unsigned)p[4] << 8, fps = p[5];
   if (!w || w > MEDIA_WIDTH_MAX || !h || h > MEDIA_HEIGHT_MAX || !fps ||
       fps > 10)
-    return MEDIA_RANGE;
-  stream_url candidate = {0};
+    return false;
   bool clear = !p[7] && !(p[6] & 1);
-  if (!clear && !parse_url(&candidate, (const char *)p + 7, w, h, fps))
-    return MEDIA_RANGE;
+  if (!clear && !parse_url(candidate, (const char *)p + 7, w, h, fps))
+    return false;
   for (unsigned i = 391; i < 519; i++)
     if (p[i] && (p[i] < 32 || p[i] == 127))
-      return MEDIA_RANGE;
+      return false;
+  return true;
+}
+bool stream_config_valid(const uint8_t *p, size_t n) {
+  stream_url candidate = {0};
+  return configuration(p, n, &candidate);
+}
+unsigned stream_config(screen_stream *s, const uint8_t *p, size_t n) {
+  stream_url candidate = {0};
+  if (!configuration(p, n, &candidate)) return MEDIA_RANGE;
+  unsigned w = (unsigned)p[1] | (unsigned)p[2] << 8,
+           h = (unsigned)p[3] | (unsigned)p[4] << 8, fps = p[5];
+  bool clear = !p[7] && !(p[6] & 1);
   close_stream(s);
   memcpy(s->url, p + 7, 384);
   memcpy(s->username, p + 391, 64);
@@ -507,9 +518,9 @@ void stream_poll(screen_stream *s, uint32_t now, bool visible,
   }
 }
 size_t stream_status(const screen_stream *s, uint8_t *p, size_t cap) {
-  if (cap < 40)
+  if (cap < MEDIA_STREAM_STATUS_BYTES)
     return 0;
-  memset(p, 0, 40);
+  memset(p, 0, MEDIA_STREAM_STATUS_BYTES);
   p[0] = s->state;
   p[1] = s->enabled;
   p[2] = s->width;
@@ -524,5 +535,5 @@ size_t stream_status(const screen_stream *s, uint8_t *p, size_t cap) {
   media_put32(p + 28, s->actual_millifps);
   media_put32(p + 32, s->revision);
   media_put32(p + 36, s->connection);
-  return 40;
+  return MEDIA_STREAM_STATUS_BYTES;
 }

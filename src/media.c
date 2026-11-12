@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "media.h"
 #include "scene.h"
+#include "stream.h"
 #include <string.h>
 screen_media media;
 void media_init(screen_media *m) { memset(m, 0, sizeof(*m)); }
@@ -63,6 +64,7 @@ static void finish(screen_media *m, media_notice *q, unsigned state) {
   if (m->active == q->id) {
     m->active = 0;
     m->presented = false;
+    m->source_ready = false;
     m->parked = false;
   }
   memset(q, 0, sizeof(*q));
@@ -77,6 +79,7 @@ unsigned media_select(screen_media *m, unsigned index) {
   if (!index) {
     m->active = 0;
     m->presented = false;
+    m->source_ready = false;
     m->parked = true;
     m->revision++;
     return MEDIA_OK;
@@ -86,6 +89,8 @@ unsigned media_select(screen_media *m, unsigned index) {
     return MEDIA_OK;
   m->active = 0;
   m->presented = false;
+  m->source_ready = false;
+  m->source_error = 0;
   media_image *im = image(m, q->image);
   m->width = m->height = 0;
   if (q->image) {
@@ -163,11 +168,18 @@ bool media_wake(const screen_media *m) {
 }
 void media_present(screen_media *m) {
   media_notice *q = (media_notice *)media_current(m);
-  if (q && !m->suspended && !m->presented) {
+  if (q && (!q->source[0] || m->source_ready) && !m->suspended && !m->presented) {
     m->presented = true;
     q->state = PUSH_DISPLAYED;
     remember(m, q);
     m->revision++;
+  }
+}
+void media_source_failed(screen_media *m, unsigned error) {
+  media_notice *q = (media_notice *)media_current(m);
+  if (q && q->source[0]) {
+    m->source_error = error;
+    finish(m, q, PUSH_FAILED);
   }
 }
 unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
@@ -266,25 +278,66 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
     im->id = 0;
     m->revision++;
     return MEDIA_OK;
-  case MEDIA_PUSH: {
-    if (n < 16 || n > MEDIA_PACKET_MAX)
+  case MEDIA_PUSH:
+  case MEDIA_PUSH_URL: {
+    bool remote = p[0] == MEDIA_PUSH_URL;
+    unsigned body = 16 + (remote ? MEDIA_STREAM_CONFIG_BYTES : 0);
+    if (n < body || n > MEDIA_PACKET_MAX)
       return MEDIA_RANGE;
     uint32_t fingerprint = media_crc32(p, n), image_id = media_u32(p + 5),
              duration = media_u32(p + 9);
-    unsigned title = p[15], text = n - 16 - title;
-    if (title > 64 || 16u + title > n || text > 512 || p[13] > 3 || !p[14] ||
+    unsigned title = p[15], text = n - body - title;
+    if (title > 64 || body + title > n || text > 512 || p[13] > 3 || !p[14] ||
         p[14] > 100 || duration > 3600000 || (!(p[13] & 2) && !duration))
       return MEDIA_RANGE;
+    const uint8_t *source = remote ? p + 16 : NULL;
+    if (remote && (image_id || !(source[6] & 1) || !source[7] ||
+                   !stream_config_valid(source, MEDIA_STREAM_CONFIG_BYTES)))
+      return MEDIA_RANGE;
+    char title_value[65] = {0}, text_value[513] = {0};
+    memcpy(title_value, p + body, title);
+    memcpy(text_value, p + body + title, text);
+    if (!scene_utf8(title_value, sizeof(title_value)) ||
+        !scene_text_utf8(text_value, sizeof(text_value))) return MEDIA_RANGE;
+    media_notice *known = NULL;
     for (unsigned i = 0; i < MEDIA_QUEUE; i++)
-      if (m->queue[i].id == id)
-        return m->queue[i].signature == fingerprint ? MEDIA_OK : MEDIA_RANGE;
-    for (unsigned i = 0; i < MEDIA_HISTORY; i++)
-      if (m->history[i].id == id)
-        return m->history[i].signature == fingerprint ? MEDIA_OK : MEDIA_RANGE;
+      if (m->queue[i].id == id) known = &m->queue[i];
+    if (known && (!remote || !known->source[0] ||
+                  strcmp((const char *)known->source + 7, (const char *)source + 7))) {
+      if (known->signature != fingerprint) return MEDIA_RANGE;
+      m->last_push_id = known->id;
+      return MEDIA_OK;
+    }
+    if (!known) for (unsigned i = 0; i < MEDIA_HISTORY; i++)
+      if (m->history[i].id == id) {
+        if (m->history[i].signature != fingerprint) return MEDIA_RANGE;
+        m->last_push_id = id;
+        return MEDIA_OK;
+      }
+    if (remote) for (unsigned i = 0; i < MEDIA_QUEUE; i++) {
+      media_notice *q = &m->queue[i];
+      if (!q->id || !q->source[0] ||
+          strcmp((const char *)q->source + 7, (const char *)source + 7)) continue;
+      /* Renew the same live source in its existing stack position. A fresh
+       * UART sequence is an event; transport retransmissions are deduplicated
+       * by the owner before reaching here. Shorter events never shorten it. */
+      if (duration > q->remaining) q->remaining = duration;
+      bool changed = strcmp(q->title, title_value) || strcmp(q->text, text_value);
+      memcpy(q->title, title_value, sizeof(q->title));
+      memcpy(q->text, text_value, sizeof(q->text));
+      memcpy(q->source, source, sizeof(q->source));
+      q->source_crc = media_crc32(source, sizeof(q->source));
+      q->wake = p[13] & 1;
+      q->confirm = (p[13] >> 1) & 1;
+      q->brightness = p[14];
+      m->last_push_id = q->id;
+      if (changed) m->revision++;
+      return MEDIA_OK;
+    }
     im = image(m, image_id);
     if (image_id && (!im || im->state != 2))
       return MEDIA_NOT_FOUND;
-    if (!image_id && !title && !text)
+    if (!remote && !image_id && !title && !text)
       return MEDIA_RANGE;
     media_notice *q = NULL;
     for (unsigned i = 0; i < MEDIA_QUEUE; i++)
@@ -312,13 +365,13 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
     q->confirm = (p[13] >> 1) & 1;
     q->brightness = p[14];
     q->state = PUSH_QUEUED;
-    memcpy(q->title, p + 16, title);
-    memcpy(q->text, p + 16 + title, text);
-    if (!scene_utf8(q->title, sizeof(q->title)) ||
-        !scene_text_utf8(q->text, sizeof(q->text))) {
-      memset(q, 0, sizeof(*q));
-      return MEDIA_RANGE;
+    memcpy(q->title, title_value, sizeof(q->title));
+    memcpy(q->text, text_value, sizeof(q->text));
+    if (remote) {
+      memcpy(q->source, source, sizeof(q->source));
+      q->source_crc = media_crc32(source, sizeof(q->source));
     }
+    m->last_push_id = q->id;
     remember(m, q);
     if (!m->active)
       m->parked = false;
@@ -384,7 +437,11 @@ size_t media_status(const screen_media *m, uint8_t *p, size_t cap) {
   p[28] = MEDIA_QUEUE;
   p[29] = MEDIA_IMAGE_SLOTS;
   p[30] = MEDIA_STACK;
-  p[31] = 2;
+  p[31] = 3;
+  media_put32(p + 32, m->last_push_id);
+  media_put32(p + 36, m->source_error);
+  const media_notice *active = media_current(m);
+  media_put32(p + 40, active ? active->remaining : 0);
   size_t at = MEDIA_STATUS_IMAGES;
   for (unsigned i = 0; i < MEDIA_IMAGE_SLOTS; i++, at += 17) {
     const media_image *im = &m->images[i];
@@ -394,12 +451,13 @@ size_t media_status(const screen_media *m, uint8_t *p, size_t cap) {
     media_put32(p + at + 12, im->crc);
     p[at + 16] = im->state;
   }
-  for (unsigned i = 0; i < MEDIA_QUEUE; i++, at += 9) {
+  for (unsigned i = 0; i < MEDIA_QUEUE; i++, at += MEDIA_STATUS_QUEUE_ITEM_BYTES) {
     const media_notice *q = media_at(m, i + 1);
     if (q) {
       media_put32(p + at, q->id);
       media_put32(p + at + 4, q->image);
       p[at + 8] = q->state;
+      p[at + 9] = q->source[0] != 0;
     }
   }
   for (unsigned i = 0; i < MEDIA_HISTORY; i++, at += 5) {

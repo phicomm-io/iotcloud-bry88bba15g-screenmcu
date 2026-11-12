@@ -1,6 +1,7 @@
 #include "media.h"
 #include "media_wire.h"
 #include "stream.h"
+#include "media_source.h"
 #include <assert.h>
 #include <string.h>
 #define IRAM
@@ -49,4 +50,12 @@ int main(void) {
   uint8_t ping[5] = {MEDIA_PING, 1};
   media_board_packet(NULL, MEDIA_LINK, guard.session, 1, ping, sizeof(ping));
   assert(media_link_state.ready);
+  media_init(&media);stream_init(&stream);media_source_init(&media_source);
+  uint8_t push[535]={MEDIA_PUSH_URL};media_put32(push+1,90);media_put32(push+9,1000);push[13]=1;push[14]=30;
+  memcpy(push+16,media_source.page,519);push[22]=3;strcpy((char *)push+23,"http://camera.test/event");
+  media_board_packet(NULL,MEDIA_COMMAND,guard.session,10,push,sizeof(push));
+  assert(media_count(&media)==1&&media.last_push_id==90);media.queue[0].remaining=200;
+  media_board_packet(NULL,MEDIA_COMMAND,guard.session,10,push,sizeof(push));assert(media.queue[0].remaining==200);
+  media_board_packet(NULL,MEDIA_COMMAND,guard.session,11,push,sizeof(push));assert(media.queue[0].remaining==1000);
+
 }

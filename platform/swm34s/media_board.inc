@@ -9,7 +9,8 @@ static struct {
 } media_link_state IRAM;
 static bool media_board_send(unsigned channel, uint32_t sequence, const void *p,
                              size_t n) {
-  uint8_t wire[2 * (MEDIA_PACKET_MAX + 18) + 2];
+  /* UART TX has one foreground owner; SRAM also works before SDRAM startup. */
+  static uint8_t wire[2 * (MEDIA_PACKET_MAX + 18) + 2] IRAM;
   size_t size =
       media_encode(wire, sizeof(wire), channel, guard.session, sequence, p, n);
   return size && board_send(NULL, (const char *)wire, size);
@@ -19,7 +20,9 @@ static size_t media_board_status(uint8_t *p, size_t cap) {
     return 0;
   size_t n = media_status(&media, p, cap);
   board_jpeg_status(p + 24);
+  size_t stream_at = n;
   n += stream_status(&stream, p + n, cap - n);
+  media_put32(p + stream_at + 40, media_source.notice_id);
   board_jpeg_registers(p + n);
   n += MEDIA_DECODER_DETAIL_BYTES;
   return n;
@@ -116,11 +119,13 @@ static void media_board_packet(void *ctx, unsigned channel, uint32_t session,
       result = media_link_state.result;
     else if (sequence > media_link_state.command) {
       if (p[0] == MEDIA_STREAM_CONFIG)
-        result = stream_config(&stream, p, n);
+        result = media_source_config(&media_source, &stream, p, n);
       else if ((p[0] == MEDIA_STREAM_START || p[0] == MEDIA_STREAM_STOP) &&
                n == 1) {
-        stream.enabled = p[0] == MEDIA_STREAM_START;
-        result = stream.url[0] ? MEDIA_OK : MEDIA_RANGE;
+        uint8_t config[MEDIA_STREAM_CONFIG_BYTES];
+        memcpy(config, media_source.page, sizeof(config));
+        config[6] = (config[6] & ~1u) | (p[0] == MEDIA_STREAM_START);
+        result = config[7] ? media_source_config(&media_source, &stream, config, sizeof(config)) : MEDIA_RANGE;
       } else
         result = media_command(&media, p, n);
       media_link_state.command = sequence;

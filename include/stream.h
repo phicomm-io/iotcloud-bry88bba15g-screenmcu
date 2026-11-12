@@ -2,7 +2,6 @@
 #pragma once
 #include "jpeg_image.h"
 #include "mjpeg.h"
-#define MEDIA_STREAM_CONFIG_BYTES 519u
 enum {
   STREAM_OFF,
   STREAM_PAUSED,
@@ -33,6 +32,7 @@ typedef struct {
 extern screen_stream stream;
 void stream_init(screen_stream *);
 unsigned stream_config(screen_stream *, const uint8_t *, size_t);
+bool stream_config_valid(const uint8_t *, size_t);
 void stream_poll(screen_stream *, uint32_t, bool visible, bool link_ready);
 void stream_socket(screen_stream *, uint32_t, const uint8_t *, size_t);
 size_t stream_status(const screen_stream *, uint8_t *, size_t);

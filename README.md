@@ -48,3 +48,15 @@ The application starts with an SRAM maintenance service. The ESP32 normally resu
 新脚本与配套 ESP32 可将完整 MCU 应用直接发送给原厂 MCU，无需先安装恢复镜像；原厂版本和引导摘要不作为白名单。建议首次操作前保存已有备份并保持稳定供电。串口 OTA 仍依赖原厂引导的复制协议；未知引导的兼容性需自行核对，应用不会改写它。
 
 The paired ESP32 and tool can send the complete MCU application directly to stock firmware, without a recovery-first step or stock-version/boot-digest allowlist. Keep an existing backup and stable power when possible. UART OTA still relies on the existing factory loader copy contract; check compatibility for other loaders. The application does not rewrite the boot region.
+
+### URL notifications
+
+`screen.push.send` can carry a transient HTTP(S) JPEG/MJPEG `url` with the same
+resolution, frame limit and authentication options as a page camera. A repeated
+queued URL renews the existing notice; `last_push_id` reports the canonical ID.
+The first frame starts the visible countdown, with a 15-second visible loading
+limit. A single source owner retains the saved page configuration and restores it
+after the notification releases the network/JPEG/RGB arena. Notification frames
+invalidate only their image rectangle; they do not rebuild the page or stack.
+Capability bit 25 gates URL push, and status version 3 adds source ownership and
+remaining duration. Queue depth stays 16 and uploaded image cache stays 4.

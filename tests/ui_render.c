@@ -157,6 +157,21 @@ static void media_and_battery(void) {
  assert(media_select(&media,1)==MEDIA_OK);model.appearance.language=0;
  media.suspended=true;assert(screen_ui(&model,120000,false));draw();assert(!find(lv_scr_act(),"Image and text"));
  media_init(&media);stream_init(&stream);
+ media.queue[0]=(media_notice){.id=900,.confirm=1,.state=PUSH_QUEUED};media.queue[0].source[0]=MEDIA_STREAM_CONFIG;
+ strcpy(media.queue[0].title,"URL notice");media.active=900;media.revision++;
+ assert(screen_ui(&model,120000,false));draw();artifact("push-url-loading");
+ media.source_ready=true;stream.width=320;stream.height=240;stream.frames=1;stream.revision++;
+ for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0xf800;
+ assert(screen_ui(&model,120001,false));draw();artifact("push-url-frame");
+ lv_obj_t *title=find(lv_scr_act(),"URL notice");assert(title);unsigned found_red=0;
+ for(unsigned i=0;i<480*854;i++)found_red+=frame[i]==0xf800;
+ assert(found_red>100000);
+ for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0x07e0;
+ stream.frames++;stream.revision++;flushed_pixels=0;
+ assert(screen_ui(&model,120002,false));draw();assert(find(lv_scr_act(),"URL notice")==title&&flushed_pixels<480*854);
+ unsigned found_green=0;for(unsigned i=0;i<480*854;i++)found_green+=frame[i]==0x07e0;assert(found_green==found_red);
+ assert(!memcmp(&unchanged,&model.scene,sizeof(unchanged))&&model.page==page);artifact("push-url-next-frame");
+ media_init(&media);stream_init(&stream);
 }
 static void rail(unsigned count,unsigned active) {
  unsigned found=0;

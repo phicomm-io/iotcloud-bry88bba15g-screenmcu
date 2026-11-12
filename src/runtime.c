@@ -237,7 +237,7 @@ bool screen_runtime_offer(screen_runtime *s, uint32_t nonce) {
                                       SCREEN_CAP_MODULE_CONTROL | SCREEN_CAP_APPEARANCE |
                                       SCREEN_CAP_WALLPAPER | SCREEN_CAP_MULTI_UNITS |
                                       SCREEN_CAP_HIDE_TITLE | SCREEN_CAP_FONT_BANK |
-                                      SCREEN_CAP_LANGUAGE | SCREEN_CAP_CHART_POINTS | SCREEN_CAP_PAGE_RAIL | SCREEN_CAP_RESOURCE_IO | SCREEN_CAP_DISPLAY_DIAG | SCREEN_CAP_PAGE_CONTROL | SCREEN_CAP_COMPACT_WIDGETS | SCREEN_CAP_MEDIA | SCREEN_CAP_IMAGE | SCREEN_CAP_BINARY_LINK);
+                                      SCREEN_CAP_LANGUAGE | SCREEN_CAP_CHART_POINTS | SCREEN_CAP_PAGE_RAIL | SCREEN_CAP_RESOURCE_IO | SCREEN_CAP_DISPLAY_DIAG | SCREEN_CAP_PAGE_CONTROL | SCREEN_CAP_COMPACT_WIDGETS | SCREEN_CAP_MEDIA | SCREEN_CAP_IMAGE | SCREEN_CAP_BINARY_LINK | SCREEN_CAP_URL_PUSH);
   if (!used || !s->send(s->context, line, used)) {
     screen_caps_reset(&s->caps);
     return false;

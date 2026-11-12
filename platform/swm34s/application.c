@@ -14,6 +14,7 @@
 #include "display_diag.h"
 #include "media.h"
 #include "stream.h"
+#include "media_source.h"
 #include "fast_image.h"
 #include <errno.h>
 #include <math.h>
@@ -738,6 +739,7 @@ void screen_start(void) {
   screen_runtime_init(&runtime);
   media_init(&media);media.decode=board_jpeg_decode;
   stream_init(&stream);stream.decode=board_jpeg_decode;stream.send=media_board_socket;
+  media_source_init(&media_source);
   runtime.send = board_send;
   runtime.factory = factory_line;
   runtime.context = &factory;
@@ -832,7 +834,8 @@ void screen_start(void) {
     for(unsigned i=0;i<runtime.model.scene.count;i++)
       if(runtime.model.scene.item[i].page==runtime.model.page&&runtime.model.scene.item[i].type==SC_IMAGE)stream_visible=true;
     media_board_socket_poll();
-    stream_poll(&stream,now,stream_visible&&board_backlight_percent()&&!power.asleep&&!media_current(&media)&&!media_busy,media_link_state.ready);
+    media_source_poll(&media_source,&media,&stream,now,stream_visible,
+      board_backlight_percent()&&!runtime.model.asleep&&!media_busy,media_link_state.ready);
     control_check();
     if (!maintenance.state) {
       font_bank_poll(&font_bank);
