@@ -100,6 +100,13 @@ static void media_and_battery(void) {
  strcpy(media.queue[0].title,"External push");strcpy(media.queue[0].text,"Image and text");
  media.active=1;media.width=32;media.height=17;for(unsigned i=0;i<32*17;i++)media.pixels[i]=0xf800;
  assert(screen_ui(&model,120000,false));draw();assert(find(lv_scr_act(),"Image and text"));artifact("push-image-text");
+ for(unsigned i=1;i<6;i++){media.queue[i]=(media_notice){.id=i+1,.confirm=1,.state=PUSH_QUEUED};snprintf(media.queue[i].title,sizeof(media.queue[i].title),"Notification %u",i+1);strcpy(media.queue[i].text,"Queued notification");}
+ media.revision++;assert(screen_ui(&model,120000,false));draw();artifact("push-stack-six-zh");
+ screen_scene unchanged=model.scene;unsigned page=model.page;
+ assert(media_select(&media,3)==MEDIA_OK);assert(screen_ui(&model,120000,false));draw();assert(find(lv_scr_act(),"Notification 3"));artifact("push-stack-view-3-zh");
+ model.appearance.language=1;assert(screen_ui(&model,120000,false));draw();assert(find(lv_scr_act(),"Notifications  3/6"));artifact("push-stack-view-3-en");
+ assert(media_select(&media,0)==MEDIA_OK);assert(screen_ui(&model,120000,false));draw();assert(!find(lv_scr_act(),"Notification 3"));assert(!memcmp(&unchanged,&model.scene,sizeof(unchanged))&&model.page==page);artifact("push-stack-view-0");
+ assert(media_select(&media,1)==MEDIA_OK);model.appearance.language=0;
  media.suspended=true;assert(screen_ui(&model,120000,false));draw();assert(!find(lv_scr_act(),"Image and text"));
  media_init(&media);stream_init(&stream);
 }

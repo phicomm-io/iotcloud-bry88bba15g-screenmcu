@@ -12,7 +12,7 @@
     "src/fonts/clock72.c": "f20500379b6f377a40c5aa514f729e1cd79617aed7ff6d8cc650ee900a9bddb4",
     "src/fonts/clock_font.c": "ce991b4afdc2d401d0cd398c80f77f66f3bbb1eeb13f3cdbfcb51ce0075f25c3",
     "src/fonts/metric_font.c": "051a1ab91f99981ec159493bed114cd8069100272d5faae73de2cd1fe83ad9b4",
-    "src/fonts/zh16.c": "832999ec490c6bd382e0e3c0a320175901dc505b38bc1f539c21723b571f443f",
+    "src/fonts/zh16.c": "dba64d53eb1df35b266682e96b02ae0d82a1d441081f93d3d5eb51616e3e652d",
     "src/fonts/zh24.c": "e7c0831761e20e782624f9b4fc11578ce4e09080fb739028651a143ada5cb1b1",
     "src/fonts/zh32.c": "1101cadeabf2f2c7e95a88ee3e9e0becd99f7a70cf2578b05a9e239751ce3c11"
   },

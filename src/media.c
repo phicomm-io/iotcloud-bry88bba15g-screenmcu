@@ -5,7 +5,7 @@
 screen_media media;
 void media_init(screen_media *m) { memset(m, 0, sizeof(*m)); }
 static media_image *image(screen_media *m, uint32_t id) {
-  for (unsigned i = 0; i < MEDIA_QUEUE; i++)
+  for (unsigned i = 0; i < MEDIA_IMAGE_SLOTS; i++)
     if (id && m->images[i].id == id)
       return &m->images[i];
   return NULL;
@@ -22,13 +22,37 @@ const media_notice *media_current(const screen_media *m) {
       return &m->queue[i];
   return NULL;
 }
+unsigned media_count(const screen_media *m) {
+  unsigned count = 0;
+  for (unsigned i = 0; i < MEDIA_QUEUE; i++)
+    count += m->queue[i].id != 0;
+  return count;
+}
+const media_notice *media_at(const screen_media *m, unsigned index) {
+  if (!index)
+    return NULL;
+  for (unsigned i = 0; i < MEDIA_QUEUE; i++)
+    if (m->queue[i].id && !--index)
+      return &m->queue[i];
+  return NULL;
+}
+unsigned media_view(const screen_media *m) {
+  unsigned index = 0;
+  for (unsigned i = 0; i < MEDIA_QUEUE; i++)
+    if (m->queue[i].id) {
+      index++;
+      if (m->queue[i].id == m->active)
+        return index;
+    }
+  return 0;
+}
 static void remember(screen_media *m, const media_notice *q) {
-  for (unsigned i = 0; i < 8; i++)
+  for (unsigned i = 0; i < MEDIA_HISTORY; i++)
     if (m->history[i].id == q->id) {
       m->history[i].state = q->state;
       return;
     }
-  unsigned i = m->history_next++ % 8;
+  unsigned i = m->history_next++ % MEDIA_HISTORY;
   m->history[i].id = q->id;
   m->history[i].signature = q->signature;
   m->history[i].state = q->state;
@@ -39,9 +63,91 @@ static void finish(screen_media *m, media_notice *q, unsigned state) {
   if (m->active == q->id) {
     m->active = 0;
     m->presented = false;
+    m->parked = false;
   }
   memset(q, 0, sizeof(*q));
   m->revision++;
+}
+unsigned media_select(screen_media *m, unsigned index) {
+  if (m->suspended)
+    return MEDIA_BUSY;
+  if (index > MEDIA_STACK || (index && !media_at(m, index)))
+    return MEDIA_RANGE;
+  m->tap_pending = false;
+  if (!index) {
+    m->active = 0;
+    m->presented = false;
+    m->parked = true;
+    m->revision++;
+    return MEDIA_OK;
+  }
+  media_notice *q = (media_notice *)media_at(m, index);
+  if (m->active == q->id)
+    return MEDIA_OK;
+  m->active = 0;
+  m->presented = false;
+  media_image *im = image(m, q->image);
+  m->width = m->height = 0;
+  if (q->image) {
+    media_jpeg j;
+    if (!im || !media_jpeg_parse(&j, im->bytes, im->size) || !m->decode ||
+        !m->decode(m->context, im->bytes, im->size, &j, m->pixels,
+                   (j.width + 15u) & ~15u)) {
+      m->decode_errors++;
+      finish(m, q, PUSH_FAILED);
+      return MEDIA_DECODE;
+    }
+    unsigned stride = (j.width + 15u) & ~15u;
+    for (unsigned row = 1; row < j.height; row++)
+      memmove(m->pixels + row * j.width, m->pixels + row * stride,
+              j.width * 2u);
+    m->width = j.width;
+    m->height = j.height;
+    m->decoded++;
+    m->pixel_crc = media_crc32(m->pixels, j.width * j.height * 2u);
+  }
+  m->active = q->id;
+  m->parked = false;
+  m->presented = false;
+  m->revision++;
+  return MEDIA_OK;
+}
+unsigned media_button(screen_media *m, uint32_t now, bool down, bool released,
+                      bool page_tap, bool blocked) {
+  if (blocked) {
+    m->tap_pending = false;
+    return 0;
+  }
+  unsigned page = 0;
+  if (m->tap_pending && (uint32_t)(now - m->tap_at) > MEDIA_TAP_WINDOW_MS) {
+    m->tap_pending = false;
+    if (!down) {
+      if (m->tap_target && m->active == m->tap_target)
+        media_touch(m);
+      else if (!m->tap_target && !m->active && m->parked)
+        page = m->tap_page;
+    }
+  }
+  if (!released)
+    return page;
+  if (m->tap_pending) {
+    m->tap_pending = false;
+    unsigned limit = media_count(m);
+    if (limit > MEDIA_STACK)
+      limit = MEDIA_STACK;
+    if (limit) {
+      unsigned next = media_view(m) + 1;
+      media_select(m, next > limit ? 0 : next);
+    }
+    return page;
+  }
+  if (!media_count(m))
+    return page || page_tap;
+  m->tap_pending = true;
+  m->tap_page = page_tap;
+  m->tap_target = m->active;
+  m->tap_at = now;
+  return page;
 }
 bool media_touch(screen_media *m) {
   for (unsigned i = 0; i < MEDIA_QUEUE; i++)
@@ -71,6 +177,8 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
     return n == 1 ? MEDIA_OK : MEDIA_RANGE;
   if (m->suspended)
     return MEDIA_BUSY;
+  if (p[0] == MEDIA_SELECT)
+    return n == 2 ? media_select(m, p[1]) : MEDIA_RANGE;
   if (n < 5 || !media_u32(p + 1))
     return MEDIA_RANGE;
   uint32_t id = media_u32(p + 1);
@@ -90,7 +198,7 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
                      im->height == h
                  ? MEDIA_OK
                  : MEDIA_RANGE;
-    for (unsigned i = 0; i < MEDIA_QUEUE; i++)
+    for (unsigned i = 0; i < MEDIA_IMAGE_SLOTS; i++)
       if (!m->images[i].id) {
         im = &m->images[i];
         break;
@@ -170,7 +278,7 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
     for (unsigned i = 0; i < MEDIA_QUEUE; i++)
       if (m->queue[i].id == id)
         return m->queue[i].signature == fingerprint ? MEDIA_OK : MEDIA_RANGE;
-    for (unsigned i = 0; i < 8; i++)
+    for (unsigned i = 0; i < MEDIA_HISTORY; i++)
       if (m->history[i].id == id)
         return m->history[i].signature == fingerprint ? MEDIA_OK : MEDIA_RANGE;
     im = image(m, image_id);
@@ -212,6 +320,8 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
       return MEDIA_RANGE;
     }
     remember(m, q);
+    if (!m->active)
+      m->parked = false;
     m->revision++;
     return MEDIA_OK;
   }
@@ -241,46 +351,24 @@ void media_tick(screen_media *m, uint32_t now, bool asleep, bool suspended) {
     else
       q->remaining -= elapsed;
   }
-  if (!m->active && !suspended) {
+  if (!m->active && !m->parked && !suspended) {
     for (unsigned i = 0; i < MEDIA_QUEUE; i++)
       if (m->queue[i].id) {
         q = &m->queue[i];
         if (asleep && !q->wake)
           break;
-        media_image *im = image(m, q->image);
-        m->width = m->height = 0;
-        if (q->image) {
-          media_jpeg j;
-          if (!im || !media_jpeg_parse(&j, im->bytes, im->size) || !m->decode ||
-              !m->decode(m->context, im->bytes, im->size, &j, m->pixels,
-                         (j.width + 15u) & ~15u)) {
-            m->decode_errors++;
-            finish(m, q, PUSH_FAILED);
-            break;
-          }
-          unsigned stride = (j.width + 15u) & ~15u;
-          for (unsigned row = 1; row < j.height; row++)
-            memmove(m->pixels + row * j.width, m->pixels + row * stride,
-                    j.width * 2u);
-          m->width = j.width;
-          m->height = j.height;
-          m->decoded++;
-          m->pixel_crc = media_crc32(m->pixels, j.width * j.height * 2u);
-        }
-        m->active = q->id;
         m->was_asleep = asleep;
-        m->presented = false;
-        m->revision++;
+        media_select(m, 1);
         break;
       }
   }
-  for (unsigned i = 0; i < MEDIA_QUEUE; i++)
+  for (unsigned i = 0; i < MEDIA_IMAGE_SLOTS; i++)
     if (m->images[i].id && !referenced(m, m->images[i].id) &&
         (uint32_t)(now - m->images[i].at) > 120000)
       m->images[i].id = 0;
 }
 size_t media_status(const screen_media *m, uint8_t *p, size_t cap) {
-  const size_t bytes = 24 + MEDIA_QUEUE * 17 + 8 * 5;
+  const size_t bytes = MEDIA_STATUS_BYTES;
   if (cap < bytes)
     return 0;
   memset(p, 0, bytes);
@@ -291,8 +379,14 @@ size_t media_status(const screen_media *m, uint8_t *p, size_t cap) {
   media_put32(p + 16, m->pixel_crc);
   p[20] = m->presented;
   p[21] = m->suspended;
-  size_t at = 24;
-  for (unsigned i = 0; i < MEDIA_QUEUE; i++, at += 17) {
+  p[22] = media_view(m);
+  p[23] = media_count(m);
+  p[28] = MEDIA_QUEUE;
+  p[29] = MEDIA_IMAGE_SLOTS;
+  p[30] = MEDIA_STACK;
+  p[31] = 2;
+  size_t at = MEDIA_STATUS_IMAGES;
+  for (unsigned i = 0; i < MEDIA_IMAGE_SLOTS; i++, at += 17) {
     const media_image *im = &m->images[i];
     media_put32(p + at, im->id);
     media_put32(p + at + 4, im->size);
@@ -300,7 +394,15 @@ size_t media_status(const screen_media *m, uint8_t *p, size_t cap) {
     media_put32(p + at + 12, im->crc);
     p[at + 16] = im->state;
   }
-  for (unsigned i = 0; i < 8; i++, at += 5) {
+  for (unsigned i = 0; i < MEDIA_QUEUE; i++, at += 9) {
+    const media_notice *q = media_at(m, i + 1);
+    if (q) {
+      media_put32(p + at, q->id);
+      media_put32(p + at + 4, q->image);
+      p[at + 8] = q->state;
+    }
+  }
+  for (unsigned i = 0; i < MEDIA_HISTORY; i++, at += 5) {
     media_put32(p + at, m->history[i].id);
     p[at + 4] = m->history[i].state;
   }

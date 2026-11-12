@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "jpeg_image.h"
 bool board_jpeg_decode(void *,const uint8_t *,size_t,const media_jpeg *,uint16_t *,unsigned);
+void board_jpeg_status(uint8_t[4]);
 bool board_uart_baud(uint32_t);
 #ifndef SCREEN_BACKLIGHT_MAX_PERCENT
 #define SCREEN_BACKLIGHT_MAX_PERCENT 100

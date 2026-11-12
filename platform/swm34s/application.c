@@ -576,7 +576,8 @@ static void power_tick_board(void) {
   bool front_down = !GPIO_GetBit(GPIOD, 11), rear_down = !GPIO_GetBit(GPIOD, 13);
   bool activity = front_down || rear_down || power.front || power.rear;
   bool notification=media_current(&media)&&media.presented&&!media.suspended;
-  bool confirmed=notification&&power.front&&!front_down&&!power.front_long&&media_touch(&media);
+  bool released=power.front&&!front_down&&!power.front_long;
+  bool consumed=notification||media.tap_pending;
   if(notification)activity=false;
   if (extended) {
     uint8_t pages = 0;
@@ -591,7 +592,9 @@ static void power_tick_board(void) {
   unsigned event =
       power_tick(&power, !GPIO_GetBit(GPIOD, 11), !GPIO_GetBit(GPIOD, 13),
                  runtime.model.charging, runtime.model.dnd);
-  if ((event & POWER_PAGE) && !confirmed)
+  unsigned page_tap=media_button(&media,board_ms,front_down,released,
+                                 (event & POWER_PAGE)!=0,power.ota||power.front_long);
+  if (page_tap)
     screen_event(&runtime.model, 1);
   if (event & POWER_PROVISION)
     factory_provision(&factory);
@@ -609,7 +612,7 @@ static void power_tick_board(void) {
     display_step(&runtime.display, board_ms,
                   runtime.model.clock_valid ? runtime.clock_epoch : 0,
                   runtime.timezone, !runtime.model.charging, power.brightness,
-                  pages, &runtime.model.page, ((!notification&&!confirmed)&&(event & POWER_WAKE)) || reminder,
+                  pages, &runtime.model.page, ((!notification&&!consumed)&&(event & POWER_WAKE)) || reminder,
                   activity, power.ota);
     if (reminder) runtime.model.page = reminder_page;
     power.asleep = runtime.display.sleeping;

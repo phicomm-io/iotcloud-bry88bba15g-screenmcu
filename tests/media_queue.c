@@ -40,11 +40,36 @@ int main(void) {
   assert(push(2,true,true,0)==MEDIA_OK);media_tick(&m,21000,true,false);assert(m.active==2);
   assert(!media_touch(&m));media_present(&m);media_tick(&m,99999,true,false);assert(m.active==2);
   assert(media_touch(&m)&&!m.active&&m.history[1].state==PUSH_CONFIRMED);
-  for(unsigned i=3;i<7;i++)assert(push(i,true,true,0)==MEDIA_OK);
-  assert(push(7,true,true,0)==MEDIA_BUSY);
+  for(unsigned i=3;i<3+MEDIA_QUEUE;i++)assert(push(i,true,true,0)==MEDIA_OK);
+  assert(push(3+MEDIA_QUEUE,true,true,0)==MEDIA_BUSY);
   cmd[0]=MEDIA_DISMISS;media_put32(cmd+1,4);assert(media_command(&m,cmd,5)==MEDIA_OK);
-  assert(push(7,true,true,0)==MEDIA_OK);media_tick(&m,100000,false,false);assert(m.active==3);
+  assert(push(3+MEDIA_QUEUE,true,true,0)==MEDIA_OK);media_tick(&m,100000,false,false);assert(m.active==3);
   media_present(&m);assert(media_touch(&m));media_tick(&m,100001,false,false);assert(m.active==5);
-  uint8_t status[132];assert(media_status(&m,status,sizeof(status))==132);assert(!media_status(&m,status,131));
-  media_tick(&m,220001,false,true);assert(!m.images[0].id);assert(push(8,true,false,0)==MEDIA_BUSY);
+  uint8_t status[MEDIA_STATUS_BYTES];assert(media_status(&m,status,sizeof(status))==sizeof(status));assert(!media_status(&m,status,sizeof(status)-1));assert(status[28]==16&&status[29]==4&&status[30]==4);
+  /* Four image arenas remain independent from the sixteen message entries. */
+  memset(cmd,0,sizeof(cmd));cmd[0]=MEDIA_BEGIN;media_put32(cmd+5,n);media_put32(cmd+9,media_crc32(jpeg,n));cmd[13]=32;cmd[15]=17;
+  for(unsigned i=1;i<MEDIA_IMAGE_SLOTS;i++){media_put32(cmd+1,100+i);assert(media_command(&m,cmd,17)==MEDIA_OK);}
+  media_put32(cmd+1,199);assert(media_command(&m,cmd,17)==MEDIA_BUSY);
+  media_tick(&m,220001,false,true);assert(!m.images[0].id);assert(push(200,true,false,0)==MEDIA_BUSY);
+  /* Park at view zero, then cycle 1,2,3,4,0 without deleting messages. */
+  media_init(&m);for(unsigned i=1;i<=6;i++)assert(push(i,true,false,0)==MEDIA_OK);
+  media_tick(&m,1,false,false);media_present(&m);assert(media_select(&m,0)==MEDIA_OK);
+  for(unsigned i=1;i<=5;i++){unsigned at=1000*i;assert(!media_button(&m,at,false,true,true,false));assert(!media_button(&m,at+150,false,true,true,false));assert(media_view(&m)==i%5);media_present(&m);}
+  assert(media_count(&m)==6&&m.parked);
+  media_tick(&m,10000,false,false);assert(!m.active&&m.queue[0].remaining==1000);
+  /* A single tap confirms only its original target after the full window. */
+  media_select(&m,1);media_present(&m);media_button(&m,11000,false,true,true,false);
+  assert(!media_button(&m,11350,false,false,false,false)&&m.active==1);
+  assert(!media_button(&m,11351,false,false,false,false)&&!m.active&&media_count(&m)==5);
+  media_tick(&m,11352,false,false);assert(m.active==2);media_present(&m);
+  media_button(&m,12000,false,true,true,false);media_select(&m,2);media_present(&m);
+  media_button(&m,12400,false,false,false,false);assert(m.active==3); /* Never dismiss the newly selected notice. */
+  /* A held second press cancels the first tap and leaves long-press handling intact. */
+  media_button(&m,13000,false,true,true,false);media_button(&m,13400,true,false,false,false);
+  media_button(&m,17000,false,false,false,true);assert(m.active==3);
+  media_select(&m,0);media_button(&m,18000,false,true,true,false);assert(media_button(&m,18351,false,false,false,false)==1);
+  media_select(&m,1);media_present(&m);media_button(&m,19000,false,true,true,false);
+  media_button(&m,19020,false,false,false,true);media_button(&m,19400,false,false,false,false);assert(m.active==2);
+  /* The double-tap window is safe across the millisecond counter wrapping. */
+  media_select(&m,0);media_button(&m,UINT32_MAX-100,false,true,true,false);media_button(&m,49,false,true,true,false);assert(m.active==2);
 }

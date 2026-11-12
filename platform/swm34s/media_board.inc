@@ -15,9 +15,10 @@ static bool media_board_send(unsigned channel, uint32_t sequence, const void *p,
   return size && board_send(NULL, (const char *)wire, size);
 }
 static size_t media_board_status(uint8_t *p, size_t cap) {
-  if (!normal_ready || cap < 172)
+  if (!normal_ready || cap < MEDIA_STATUS_BYTES + MEDIA_STREAM_STATUS_BYTES)
     return 0;
   size_t n = media_status(&media, p, cap);
+  board_jpeg_status(p + 24);
   n += stream_status(&stream, p + n, cap - n);
   return n;
 }

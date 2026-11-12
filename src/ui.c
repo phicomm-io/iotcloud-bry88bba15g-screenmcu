@@ -567,7 +567,7 @@ static uint64_t structure_hash(const screen_model *m) {
   HASH(screen_font_resources.state);HASH(screen_font_resources.crc);
   HASH(m->appearance);HASH(wallpaper.kind);HASH(wallpaper.ready);HASH(wallpaper.crc);
   HASH(m->page);HASH(m->scene);HASH(m->ota);
-  HASH(media.active);HASH(media.suspended);
+  HASH(media.active);HASH(media.suspended);HASH(media.revision);
 #undef HASH
   return hash;
 }
@@ -709,15 +709,27 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   const media_notice *notice=media_current(&media);
   if(notice&&!media.suspended&&!m->ota){
     lv_obj_t *overlay=box(root,0,0,480,854,BG,0);
-    label(overlay,24,28,432,88,notice->title,&zh32,INK);
-    int text_top=124;
+    unsigned count=media_count(&media),view=media_view(&media),limit=count<MEDIA_STACK?count:MEDIA_STACK;
+    char heading[64];snprintf(heading,sizeof(heading),english?"Notifications  %u/%u":"通知  %u/%u",view,count);
+    label(overlay,24,24,432,44,heading,&zh32,INK);
+    if(count>2){lv_obj_t *back=box(overlay,40,80,400,660,CARD,28);lv_obj_set_style_bg_opa(back,110,0);}
+    if(count>1){lv_obj_t *back=box(overlay,28,96,424,660,CARD,28);lv_obj_set_style_bg_opa(back,180,0);}
+    lv_obj_t *card=box(overlay,16,112,448,662,CARD,28);
+    label(card,20,20,408,80,notice->title,&zh32,INK);
+    int text_top=112;
     if(media.width&&media.height){
-      int image_height=notice->text[0]?420:648;
-      picture(overlay,&media_image_descriptor,media.pixels,media.width,media.height,16,112,448,image_height,false);
-      text_top=112+image_height+12;
+      int image_height=notice->text[0]?280:520;
+      picture(card,&media_image_descriptor,media.pixels,media.width,media.height,12,108,424,image_height,false);
+      text_top=108+image_height+12;
     }
-    if(notice->text[0])label(overlay,24,text_top,432,790-text_top,notice->text,&zh32,INK);
-    if(notice->confirm)label(overlay,24,802,432,40,english?"Tap the front button to confirm":"轻触前面按键确认",&zh32,MUTED);
+    if(notice->text[0]){
+      int height=638-text_top;unsigned size=28;lv_point_t bounds;
+      while(size>16){lv_txt_get_size(&bounds,notice->text,screen_ui_font(size,false),0,0,408,LV_TEXT_FLAG_NONE);if(bounds.y<=height)break;size-=2;}
+      label(card,20,text_top,408,height,notice->text,screen_ui_font(size,false),INK);
+    }
+    label(overlay,24,786,432,25,english?"Tap to dismiss · Double-tap to switch":"单击确认 · 双击切换",screen_ui_font(20,false),MUTED);
+    int left=(480-(int)(limit+1)*28)/2;
+    for(unsigned i=0;i<=limit;i++)box(overlay,left+(int)i*28+8,830,12,12,i==view?INK:GRID,6);
   }
   }
   return changed;

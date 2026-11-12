@@ -2,6 +2,8 @@
 #include "board.h"
 #include "jpeg_image.h"
 #include <string.h>
+static uint8_t diagnostic[4];
+void board_jpeg_status(uint8_t out[4]) { memcpy(out, diagnostic, 4); }
 static void reset_decoder(void) {
   SYS->PRSTEN = 0x55;
   SYS->PRSTR1 |= SYS_PRSTR1_JPEG_Msk;
@@ -68,19 +70,31 @@ bool board_jpeg_decode(void *context, const uint8_t *p, size_t n,
       .format = JPEG_OUT_RGB565, .RGBAddr = (uint32_t)out, .RGBWidth = stride};
   __DSB();
   JPEG_Decode(JPEG, &info, &setting);
+  __DSB();
   uint32_t start = board_ms;
-  while (JPEG_DecodeBusy(JPEG)) {
+  bool ok = false;
+  for (;;) {
+    uint32_t status = JPEG->SR, flags = JPEG->IR;
+    diagnostic[0] = status;
+    diagnostic[1] = flags >> JPEG_IR_IFDONE_Pos;
+    uint32_t elapsed = board_ms - start;
+    diagnostic[2] = elapsed;
+    diagnostic[3] = elapsed >> 8;
+    if ((flags & JPEG_IR_IFERROR_Msk) ||
+        (status & (JPEG_SR_CUOVR_Msk | JPEG_SR_REIMERR_Msk)))
+      break;
+    if ((flags & JPEG_IR_IFDONE_Msk) &&
+        !(status & (JPEG_SR_BUSY_Msk | JPEG_SR_DMAWRBUSY_Msk))) {
+      ok = true;
+      break;
+    }
     /* Do not recursively pump media input while its packet buffer is borrowed.
      * RX interrupt and 4 KiB ring cover this bounded hardware operation. */
-    if ((uint32_t)(board_ms - start) > 100) {
-      reset_decoder();
-      return false;
-    }
+    if (elapsed > 100)
+      break;
     board_watchdog_feed();
   }
   __DSB();
-  bool ok =
-      (JPEG->IR & JPEG_IR_IFDONE_Msk) && !(JPEG->IR & JPEG_IR_IFERROR_Msk);
   if (!ok)
     reset_decoder();
   return ok;
