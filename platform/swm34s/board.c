@@ -274,7 +274,12 @@ bool board_uart_baud(uint32_t baud){
   if(!media_rate_valid(baud))return false;
   uint32_t at=board_ms;
   while(UART_IsTXBusy(UART0))if((uint32_t)(board_ms-at)>100)return false;
-  NVIC_DisableIRQ(UART0_IRQn);UART_SetBaudrate(UART0,baud);
+  NVIC_DisableIRQ(UART0_IRQn);
+  /* SWM34S manual p. 286: the divider is applied when CTRL.EN is enabled.
+   * Reading BAUD back alone cannot prove the running UART has switched. */
+  UART_Close(UART0);
+  UART_SetBaudrate(UART0,baud);
+  UART_Open(UART0);
   uint32_t actual=UART_GetBaudrate(UART0);
   NVIC_EnableIRQ(UART0_IRQn);
   return actual>baud*98u/100u&&actual<baud*102u/100u;
