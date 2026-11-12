@@ -60,4 +60,13 @@ int main(void){
  s.now=3010;assert(s.parser.want(s.parser.context));
  s.now=10000;assert(s.parser.want(s.parser.context));
  s.now=10001;assert(!s.parser.want(s.parser.context));
+ // A one-frame-per-second source with transport jitter must retain its rate.
+ stream_init(&s);
+ for(unsigned i=0;i<60;i++) {
+   static const int jitter[]={0,-150,120,-90,160,-110};
+   s.now=1000+i*1000+jitter[i%6];
+   assert(s.parser.want(s.parser.context));
+   s.ready=true;s.now+=100;assert(!s.parser.want(s.parser.context));
+   s.ready=false;
+ }
 }

@@ -19,8 +19,9 @@ static bool emit(screen_stream *s, unsigned op, const void *p, size_t n) {
 static bool want(void *ctx) {
   screen_stream *s = ctx;
   uint32_t period = 1000u / s->fps;
-  unsigned tolerance = period / 10u;
-  if (tolerance > 20) tolerance = 20;
+  // TCP buffering and the shared UART add variable delivery latency. Keep
+  // the deadline cadence while allowing a quarter-period of arrival jitter.
+  unsigned tolerance = period / 4u;
   bool yes = !s->ready && (!s->frame_due ||
                  (int32_t)(s->now - s->frame_due) >= -(int32_t)tolerance);
   if (yes) {
