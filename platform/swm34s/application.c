@@ -133,7 +133,7 @@ static void rtc_tick(uint32_t now) {
       screen_runtime_clock(&runtime, utc, runtime.timezone, now, false);
   }
 }
-static lv_color_t framebuffer[480 * 854]
+static lv_color_t framebuffer[2][480 * 854]
     __attribute__((section(".framebuffer"), aligned(64)));
 static lv_color_t drawbuffer[2][480 * 40];
 static lv_disp_draw_buf_t draw;
@@ -142,17 +142,26 @@ static screen_display_diag display_diagnostics;
 static bool diag_redraw;
 static bool display_dma_ready, display_dma_fault;
 static uint32_t display_dma_flushes;
+static unsigned display_front;
+static lv_area_t display_dirty;
+static bool display_dirty_valid;
 static struct {
   lv_disp_drv_t *driver;
   lv_area_t area;
   lv_color_t *pixels;
   uint32_t started, started_ms;
   bool last;
+  unsigned phase;
 } pending_flush;
 void board_display_acceleration(uint8_t p[128]) {
-  scene_put32(p + 120, 1u | (display_dma_ready ? 2u : 0u) | 4u |
+  scene_put32(p + 120, 1u | (display_dma_ready ? 2u : 0u) | 4u | 16u |
                             (display_dma_fault ? 8u : 0u));
   scene_put32(p + 124, display_dma_flushes);
+}
+static void display_scan_failed(void) {
+  /* Never release or overwrite a buffer while scanout may still own it. */
+  recovery_reason = 7;
+  board_recovery();
 }
 extern uint32_t __data_start__, __data_end__, __data_load__, __iram_start__,
     __iram_end__, __bss_start__, __bss_end__;

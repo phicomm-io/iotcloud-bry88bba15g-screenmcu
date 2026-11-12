@@ -401,6 +401,18 @@ __attribute__((noinline)) void board_display_diag(uint8_t p[128]){
   scene_put32(p+112,1000000);scene_put32(p+116,1); // source: frame-end IRQ
   board_display_acceleration(p);
 }
+void board_display_present(const void *pixels) {
+  /* SWM34S V1.39 p583: reload shadow layer registers at frame start;
+   * hardware clears VBPRELOAD only after the reload has completed. */
+  LCD->L[0].ADDR = (uint32_t)pixels;
+  __DSB();
+  LCD->CR |= LCD_CR_VBPRELOAD_Msk;
+  __DSB();
+}
+bool board_display_present_pending(void) {
+  __DSB();
+  return (LCD->CR & LCD_CR_VBPRELOAD_Msk) != 0;
+}
 void board_display(void) {
   for (unsigned i = 0; i < 20; i++)
     PORT_Init((PORT_TypeDef *)board_mux[i].port, board_mux[i].pin,

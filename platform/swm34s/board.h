@@ -26,6 +26,8 @@ uint32_t board_nonce(void *);
 bool board_sdram(void);
 extern volatile uint32_t board_sdram_error;
 void board_display(void);
+void board_display_present(const void *pixels);
+bool board_display_present_pending(void);
 uint32_t board_time_us(void);
 void board_lvgl_tick_start(void);
 void board_lvgl_tick_stop(void);

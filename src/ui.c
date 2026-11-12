@@ -26,7 +26,7 @@ static lv_img_dsc_t media_image_descriptor,stream_image_descriptor;
 static void picture(lv_obj_t *parent,lv_img_dsc_t *descriptor,const uint16_t *pixels,unsigned width,unsigned height,int x,int y,int w,int h,bool cover){
   if(!width||!height||w<=0||h<=0)return;
   lv_obj_t *clip=box(parent,x,y,w,h,0,0);
-  lv_obj_set_style_bg_opa(clip,LV_OPA_TRANSP,0);
+  lv_obj_set_style_bg_color(clip,lv_obj_get_style_bg_color(parent,0),0);
   *descriptor=(lv_img_dsc_t){.header={.cf=LV_IMG_CF_TRUE_COLOR,.w=width,.h=height},.data_size=width*height*2u,.data=(const uint8_t *)pixels};
   lv_obj_t *image=lv_img_create(clip);lv_img_set_src(image,descriptor);
   unsigned a=(unsigned)w*256/width,b=(unsigned)h*256/height,zoom=cover?(a>b?a:b):(a<b?a:b);
@@ -496,7 +496,7 @@ static lv_obj_t *component(lv_obj_t *root,const screen_model *m,const scene_item
   lv_obj_t *c=existing?existing:box(root,x,y,w,h,wc(0),12);
   reuse_labels=(clock||it->type==SC_VALUE)?c:NULL;reuse_index=0;
   if(existing&&!reuse_labels)lv_obj_clean(c);
-  unsigned alpha=appearance_opacity(appearance,custom,it->type,it->h,have_wallpaper);
+  unsigned alpha=it->type==SC_IMAGE?100:appearance_opacity(appearance,custom,it->type,it->h,have_wallpaper);
   lv_obj_set_style_bg_opa(c,alpha*255/100,0);
   if(have_wallpaper) {lv_obj_set_style_border_width(c,1,0);lv_obj_set_style_border_color(c,lv_color_hex(appearance_color(appearance,AP_LINE)),0);lv_obj_set_style_border_opa(c,alpha*100/100,0);}
   int pad=clock?0:12;w-=pad*2;h-=24;
@@ -724,8 +724,10 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
     unsigned count=media_count(&media),view=media_view(&media),limit=count<MEDIA_STACK?count:MEDIA_STACK;
     char heading[64];snprintf(heading,sizeof(heading),english?"Notifications  %u/%u":"通知  %u/%u",view,count);
     label(overlay,24,24,432,44,heading,&zh32,INK);
-    if(count>2){lv_obj_t *back=box(overlay,40,80,400,660,CARD,28);lv_obj_set_style_bg_opa(back,110,0);}
-    if(count>1){lv_obj_t *back=box(overlay,28,96,424,660,CARD,28);lv_obj_set_style_bg_opa(back,180,0);}
+    /* Precompose decorative layers against the solid canvas once. Keeping
+     * them opaque avoids per-pixel blending of the full overlapping cards. */
+    if(count>2)box(overlay,40,80,400,660,lv_color_to32(lv_color_mix(lv_color_hex(CARD),lv_color_hex(BG),110))&0xffffff,28);
+    if(count>1)box(overlay,28,96,424,660,lv_color_to32(lv_color_mix(lv_color_hex(CARD),lv_color_hex(BG),180))&0xffffff,28);
     lv_obj_t *card=box(overlay,16,112,448,662,CARD,28);
     label(card,20,20,408,80,notice->title,&zh32,INK);
     int text_top=112;
