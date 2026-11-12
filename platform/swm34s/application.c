@@ -38,6 +38,11 @@ const char firmware_identity[] =
 #ifdef SCREEN_UART2_QUIET
     "uart2=quiet;"
 #endif
+#if SCREEN_EXPERIMENTAL_DMA2D
+    "dma2d=experimental;"
+#else
+    "dma2d=off;"
+#endif
 #if SCREEN_BACKLIGHT_MAX_PERCENT < 100
     "backlight_max=" SCREEN_STRINGIFY(SCREEN_BACKLIGHT_MAX_PERCENT) ";"
 #endif
@@ -154,7 +159,8 @@ static struct {
   unsigned phase;
 } pending_flush;
 void board_display_acceleration(uint8_t p[128]) {
-  scene_put32(p + 120, 1u | (display_dma_ready ? 2u : 0u) | 4u | 16u |
+  scene_put32(p + 120, 1u | (display_dma_ready ? 2u : 0u) |
+                            (draw.buf2 ? 4u : 0u) | 16u |
                             (display_dma_fault ? 8u : 0u) |
                             (!(SYS->CLKEN0 & SYS_CLKEN0_DMA2D_Msk) ? 32u : 0u) |
                             (!(SYS->CLKEN1 & SYS_CLKEN1_JPEG_Msk) ? 64u : 0u));
@@ -728,6 +734,7 @@ void screen_start(void) {
   for (to = &__bss_start__; to < &__bss_end__;)
     *to++ = 0;
   memset(framebuffer, 0, sizeof(framebuffer));
+  board_jpeg_idle();
   screen_runtime_init(&runtime);
   media_init(&media);media.decode=board_jpeg_decode;
   stream_init(&stream);stream.decode=board_jpeg_decode;stream.send=media_board_socket;
@@ -762,7 +769,9 @@ void screen_start(void) {
   lv_init();
   board_lvgl_tick_start();
   display_dma_init();
-  lv_disp_draw_buf_init(&draw, drawbuffer[0], drawbuffer[1], 480 * 40);
+  /* Serialize pixel drawing and DMA reads to avoid three concurrent SDRAM
+   * users (CPU, DMA2D and continuous LCD). The second strip is startup scratch. */
+  lv_disp_draw_buf_init(&draw, drawbuffer[0], NULL, 480 * 40);
   lv_disp_drv_init(&display);
   display.hor_res = 480;
   display.ver_res = 854;
@@ -922,7 +931,7 @@ void screen_start(void) {
     lv_timer_handler();
     /* Complete the final strip before reporting presentation or starting the
      * next foreground media decode. Earlier strips overlap LVGL drawing. */
-    while (!display_flush_poll()) board_watchdog_feed();
+    while (!display_flush_poll()) { board_watchdog_feed(); board_idle(); }
     if(media_current(&media)&&!runtime.model.asleep&&!runtime.model.ota&&board_backlight_percent())media_present(&media);
     control_check();
     stage(STAGE_NORMAL);

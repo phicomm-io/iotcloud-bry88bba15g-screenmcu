@@ -7,6 +7,7 @@
 bool board_jpeg_decode(void *,const uint8_t *,size_t,const media_jpeg *,uint16_t *,unsigned);
 void board_jpeg_status(uint8_t[4]);
 void board_jpeg_registers(uint8_t[MEDIA_DECODER_DETAIL_BYTES]);
+void board_jpeg_idle(void);
 bool board_uart_baud(uint32_t);
 #ifndef SCREEN_BACKLIGHT_MAX_PERCENT
 #define SCREEN_BACKLIGHT_MAX_PERCENT 100

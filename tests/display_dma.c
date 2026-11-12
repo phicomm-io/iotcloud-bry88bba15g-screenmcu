@@ -22,7 +22,7 @@ static struct { unsigned PRSTEN, PRSTR0, CLKEN0; } system_registers;
 #define SYS_PRSTR0_DMA2D_Msk 1u
 #define SYS_CLKEN0_DMA2D_Msk 2u
 typedef struct { uint32_t Address, LineOffset; unsigned ColorMode, LineCount, LinePixel; } DMA2D_LayerSetting;
-typedef struct { unsigned Interval; } DMA2D_InitStructure;
+typedef struct { unsigned Interval, IntEOTEn; } DMA2D_InitStructure;
 #define DMA2D_FMT_RGB565 2
 static unsigned remaining, latency = 2, completions;
 static bool last = true;
@@ -30,6 +30,7 @@ static DMA2D_LayerSetting input, output;
 static void barrier(void) { if (SYS->PRSTR0) remaining = 0; }
 #define __DSB() barrier()
 static void board_watchdog_feed(void) { board_ms++; }
+static void board_idle(void) { board_ms++; }
 static uint32_t board_time_us(void) { return micros += 100; }
 static void board_display_present(const void *pixels) {
   assert(!remaining && pixels == framebuffer[display_front ^ 1u]);
@@ -71,10 +72,17 @@ static unsigned DMA2D_IsBusy(void) {
 }
 void lv_disp_flush_ready(lv_disp_drv_t *driver) { assert(driver && !remaining); completions++; }
 bool lv_disp_flush_is_last(lv_disp_drv_t *driver) { assert(driver); return last; }
+static void *guarded_copy(void *destination, const void *source, size_t size) {
+  uintptr_t begin=(uintptr_t)framebuffer[scanned_front], end=begin+sizeof(framebuffer[0]);
+  assert((uintptr_t)destination+size<=begin || (uintptr_t)destination>=end);
+  return lv_memcpy(destination,source,size);
+}
+#define lv_memcpy guarded_copy
 #include "../platform/swm34s/display_dma.inc"
+#undef lv_memcpy
 
 int main(void) {
-  display_dma_init(); assert(display_dma_ready && !display_dma_fault);
+  display_dma_init(); assert(display_dma_ready == (bool)SCREEN_EXPERIMENTAL_DMA2D && !display_dma_fault);
   assert(!(SYS->CLKEN0 & SYS_CLKEN0_DMA2D_Msk));
   lv_disp_drv_t driver = {0};
   lv_area_t area = {.x1 = 17, .y1 = 20, .x2 = 40, .y2 = 29};
@@ -107,6 +115,7 @@ int main(void) {
   assert(completions == 3 && display_front == 0 && scanned_front == 0);
   assert(!memcmp(framebuffer[0],framebuffer[1],sizeof(framebuffer[0])));
   assert(framebuffer[0][70 * 480 + 50].full == 0);
+#if SCREEN_EXPERIMENTAL_DMA2D
   /* A stalled peripheral is reset, its exact rectangle copied by the CPU,
    * and the borrowed strip released exactly once. Future flushes use CPU. */
   latency = 100000; area = (lv_area_t){.x1=17,.y1=30,.x2=40,.y2=39};
@@ -120,22 +129,17 @@ int main(void) {
   assert(completions == 5 && !pending_flush.driver);
   assert(!memcmp(framebuffer[0],framebuffer[1],sizeof(framebuffer[0])));
   assert(display_dma_flushes == 4);
-  /* A mirror DMA timeout also repairs only the released buffer. */
-  latency = 2; display_dma_ready = true;
-  area.y1 = 50; area.y2 = 59; flush(&driver, &area, drawbuffer[0]);
-  while (pending_flush.phase != 2) display_flush_poll();
-  remaining = 100000;
-  while (!display_flush_poll()) display_flush_wait(&driver);
-  assert(completions == 6 && display_dma_fault && !display_dma_ready);
-  assert(!memcmp(framebuffer[0],framebuffer[1],sizeof(framebuffer[0])));
+#else
+  assert(!display_dma_ready && !display_dma_fault && !display_dma_flushes && !remaining);
+#endif
   /* A stuck frame reload must enter recovery without releasing the borrowed
    * strip or writing the buffer still owned by LCD. */
-  unsigned old = display_front; reload_stuck = true;
+  unsigned old = display_front, completed = completions; reload_stuck = true;
   area.y1 = 100; area.y2 = 109; flush(&driver, &area, drawbuffer[0]);
   if (!setjmp(scan_failure)) {
     for (;;) display_flush_wait(&driver);
   }
-  assert(display_front == old && scanned_front == old && completions == 6);
+  assert(display_front == old && scanned_front == old && completions == completed);
   assert(pending_flush.driver && framebuffer[old][100 * 480 + 17].full == 0);
   puts("PASS: frame ownership, VBP reload, partial frame preservation, DMA fallback and stalled scan recovery");
 }

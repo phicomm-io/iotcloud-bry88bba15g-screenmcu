@@ -8,6 +8,10 @@ void board_jpeg_status(uint8_t out[4]) { memcpy(out, diagnostic, 4); }
 void board_jpeg_registers(uint8_t out[MEDIA_DECODER_DETAIL_BYTES]) {
   memcpy(out, registers, sizeof(registers));
 }
+void board_jpeg_idle(void) {
+  SYS->CLKEN1 &= ~SYS_CLKEN1_JPEG_Msk;
+  __DSB();
+}
 static void reset_decoder(void) {
   SYS->PRSTEN = 0x55;
   SYS->PRSTR1 |= SYS_PRSTR1_JPEG_Msk;
@@ -124,7 +128,6 @@ bool board_jpeg_decode(void *context, const uint8_t *p, size_t n,
   if (!ok)
     reset_decoder();
   /* RGB565 output stays in SDRAM; the decoder need not run between frames. */
-  SYS->CLKEN1 &= ~SYS_CLKEN1_JPEG_Msk;
-  __DSB();
+  board_jpeg_idle();
   return ok;
 }

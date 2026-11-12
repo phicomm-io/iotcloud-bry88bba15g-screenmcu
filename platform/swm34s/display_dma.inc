@@ -1,10 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Draw only into the back frame. Latch it at a hardware frame boundary, then
  * synchronize the dirty rectangle into the released frame before reuse. */
+#ifndef SCREEN_EXPERIMENTAL_DMA2D
+#define SCREEN_EXPERIMENTAL_DMA2D 0
+#endif
 static void copy_flush(const lv_area_t *a, const lv_color_t *p) {
   for (int y = a->y1; y <= a->y2; y++) {
     if (y >= 0 && y < 854 && a->x1 >= 0 && a->x2 < 480)
-      memcpy(framebuffer[display_front ^ 1u] + y * 480 + a->x1, p,
+      lv_memcpy(framebuffer[display_front ^ 1u] + y * 480 + a->x1, p,
              (a->x2 - a->x1 + 1) * sizeof(*p));
     p += a->x2 - a->x1 + 1;
   }
@@ -34,10 +37,15 @@ static void display_dma_move(const lv_color_t *source, lv_color_t *destination,
   DMA2D_PixelMove(&input, &output);
 }
 static void display_dma_init(void) {
+  display_dma_ready = display_dma_fault = false;
+  display_dma_clock(false);
+  /* Live updates shake with DMA2D on this board, including small data
+   * changes. Keep the validated CPU path as the production default. */
+  if (!SCREEN_EXPERIMENTAL_DMA2D) return;
   display_dma_fault = true;
   display_dma_reset();
-  /* Yield between 64-word bursts so continuous LCD reads retain bandwidth. */
-  DMA2D_InitStructure configuration = {.Interval = 64};
+  /* Leave LCD enough time to refill its FIFO between 64-word blocks. */
+  DMA2D_InitStructure configuration = {.Interval = 512, .IntEOTEn = 1};
   DMA2D_Init(&configuration);
   /* Check real RGB565 order and destination stride before allowing DMA to
    * touch scanout. Both scratch strips are unused until LVGL is registered. */
@@ -62,14 +70,13 @@ static void display_dma_init(void) {
 }
 static void display_mirror_copy(void) {
   for (int y = display_dirty.y1; y <= display_dirty.y2; y++)
-    memcpy(framebuffer[display_front ^ 1u] + y * 480 + display_dirty.x1,
+    lv_memcpy(framebuffer[display_front ^ 1u] + y * 480 + display_dirty.x1,
            framebuffer[display_front] + y * 480 + display_dirty.x1,
            lv_area_get_width(&display_dirty) * sizeof(lv_color_t));
 }
 static bool display_dma_done(void) {
   if (display_dma_ready && DMA2D_IsBusy()) {
-    /* A mirror may cover all 854 rows, unlike a borrowed 40-row strip. */
-    unsigned timeout = pending_flush.phase == 2 ? 250 : 50;
+    unsigned timeout = 50;
     if ((uint32_t)(board_ms - pending_flush.started_ms) < timeout) return false;
     display_dma_reset();
     display_dma_ready = false;
@@ -101,14 +108,9 @@ static bool display_flush_poll(void) {
     display_front ^= 1u;
     pending_flush.phase = 2;
     pending_flush.started_ms = board_ms;
-    if (display_dma_ready) {
-      unsigned width = lv_area_get_width(&display_dirty);
-      unsigned at = display_dirty.y1 * 480 + display_dirty.x1;
-      display_dma_move(framebuffer[display_front] + at,
-                       framebuffer[display_front ^ 1u] + at,
-                       width, lv_area_get_height(&display_dirty),
-                       480 - width, 480 - width);
-    } else display_mirror_copy();
+    /* Large SDRAM-to-SDRAM DMA mirrors disturb scanout on this board.
+     * Copy only this released frame on the CPU; strips still use DMA2D. */
+    display_mirror_copy();
   }
   if (pending_flush.phase == 2) {
     if (!display_dma_done()) return false;
@@ -125,8 +127,9 @@ static bool display_flush_poll(void) {
 }
 static void display_flush_wait(lv_disp_drv_t *driver) {
   (void)driver;
-  display_flush_poll();
+  bool done = display_flush_poll();
   board_watchdog_feed();
+  if (!done) board_idle();
 }
 static void flush(lv_disp_drv_t *d, const lv_area_t *a, lv_color_t *p) {
   uint32_t start = board_time_us();

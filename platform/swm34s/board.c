@@ -380,6 +380,10 @@ void LCD_Handler(void){
   }
   lcd_last_us=now;++lcd_frame_count;
 }
+void DMA2D_Handler(void) {
+  /* Wake a sleeping flush waiter; foreground retains buffer ownership. */
+  DMA2D->IF = DMA2D_IF_DONE_Msk;
+}
 __attribute__((noinline)) void board_display_diag(uint8_t p[128]){
   uint32_t mask=__get_PRIMASK();__disable_irq();
   uint32_t count=lcd_frame_count,periods=lcd_period_count,

@@ -39,7 +39,7 @@ static void image(lv_draw_ctx_t *ctx, const lv_draw_img_dsc_t *dsc,
                    dsc->pivot.y * 256 + 128) >> 8;
     if (sy < 0 || (unsigned)sy >= height) continue;
     if (sy == previous) {
-      memcpy(destination + begin, destination - stride + begin,
+      lv_memcpy(destination + begin, destination - stride + begin,
              (end - begin) * sizeof(*destination));
     } else {
       const lv_color_t *row = pixels + sy * width;
