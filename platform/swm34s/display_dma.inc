@@ -60,7 +60,9 @@ static void display_mirror_copy(void) {
 }
 static bool display_dma_done(void) {
   if (display_dma_ready && DMA2D_IsBusy()) {
-    if ((uint32_t)(board_ms - pending_flush.started_ms) < 50) return false;
+    /* A mirror may cover all 854 rows, unlike a borrowed 40-row strip. */
+    unsigned timeout = pending_flush.phase == 2 ? 250 : 50;
+    if ((uint32_t)(board_ms - pending_flush.started_ms) < timeout) return false;
     display_dma_reset();
     display_dma_ready = false;
     display_dma_fault = true;

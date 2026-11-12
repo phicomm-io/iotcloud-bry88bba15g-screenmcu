@@ -11,7 +11,8 @@ Two independent 480×40 LVGL draw buffers let the CPU draw the next strip while
 DMA2D moves the previous one into a separate back framebuffer. A real
 startup test checks RGB565 order, row stride and untouched guard pixels before
 enabling DMA. Completion releases each borrowed draw buffer exactly once.
-A 50 ms timeout resets DMA and copies the pending rectangle on the CPU; later
+A 50 ms strip timeout (250 ms for a full-frame mirror) resets DMA and copies
+the pending rectangle on the CPU; later
 flushes keep using the CPU. After the final strip, LCD VBPRELOAD latches the
 completed back frame at frame start. Only after hardware clears VBPRELOAD may
 the old front frame be reused. DMA2D synchronizes the dirty bounding rectangle
