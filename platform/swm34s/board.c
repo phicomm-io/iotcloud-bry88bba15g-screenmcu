@@ -270,6 +270,20 @@ bool board_send(void *ctx, const char *s, size_t n) {
   esp_wake_at = board_ms;
   return true;
 }
+bool board_uart_baud(uint32_t baud){
+  if(!media_rate_valid(baud))return false;
+  uint32_t at=board_ms;
+  while(UART_IsTXBusy(UART0))if((uint32_t)(board_ms-at)>100)return false;
+  NVIC_DisableIRQ(UART0_IRQn);
+  /* SWM34S manual p. 286: the divider is applied when CTRL.EN is enabled.
+   * Reading BAUD back alone cannot prove the running UART has switched. */
+  UART_Close(UART0);
+  UART_SetBaudrate(UART0,baud);
+  UART_Open(UART0);
+  uint32_t actual=UART_GetBaudrate(UART0);
+  NVIC_EnableIRQ(UART0_IRQn);
+  return actual>baud*98u/100u&&actual<baud*102u/100u;
+}
 volatile uint32_t board_sdram_error IRAM;
 bool board_sdram(void) {
   board_sdram_error = 0;
@@ -366,6 +380,10 @@ void LCD_Handler(void){
   }
   lcd_last_us=now;++lcd_frame_count;
 }
+void DMA2D_Handler(void) {
+  /* Wake a sleeping flush waiter; foreground retains buffer ownership. */
+  DMA2D->IF = DMA2D_IF_DONE_Msk;
+}
 __attribute__((noinline)) void board_display_diag(uint8_t p[128]){
   uint32_t mask=__get_PRIMASK();__disable_irq();
   uint32_t count=lcd_frame_count,periods=lcd_period_count,
@@ -385,6 +403,19 @@ __attribute__((noinline)) void board_display_diag(uint8_t p[128]){
   scene_put32(p+108,((v&LCD_CRV_VBP_Msk)>>LCD_CRV_VBP_Pos)+
       ((v&LCD_CRV_PIX_Msk)>>LCD_CRV_PIX_Pos)+((v&LCD_CRV_VFP_Msk)>>LCD_CRV_VFP_Pos)+3);
   scene_put32(p+112,1000000);scene_put32(p+116,1); // source: frame-end IRQ
+  board_display_acceleration(p);
+}
+void board_display_present(const void *pixels) {
+  /* SWM34S V1.39 p583: reload shadow layer registers at frame start;
+   * hardware clears VBPRELOAD only after the reload has completed. */
+  LCD->L[0].ADDR = (uint32_t)pixels;
+  __DSB();
+  LCD->CR |= LCD_CR_VBPRELOAD_Msk;
+  __DSB();
+}
+bool board_display_present_pending(void) {
+  __DSB();
+  return (LCD->CR & LCD_CR_VBPRELOAD_Msk) != 0;
 }
 void board_display(void) {
   for (unsigned i = 0; i < 20; i++)
@@ -411,7 +442,9 @@ void board_display(void) {
       board_delay(20);
   }
   LCD_InitStructure c = {0};
-  c.ClkDiv = 6;
+  /* 120 MHz / 8 / (560 * 894) = 29.96 Hz. Leave more SDRAM bus time
+   * for rendering and DMA while retaining continuous panel scanout. */
+  c.ClkDiv = 8;
   c.Format = LCD_FMT_RGB565;
   c.HnPixel = 480;
   c.VnPixel = 854;

@@ -30,7 +30,8 @@ test starts an upload immediately after the first batch and checks the final pix
 
 The earlier glyph-cache stage reserved approximately 2.10 MiB of 8 MiB SDRAM.
 With the full external font cached in RAM, the current allocation is approximately
-4.06 MiB; use the frozen map for exact figures.
+4.06 MiB before media buffers; use the frozen map for exact figures. Current
+media buffers and spare memory are described in [media rendering](MEDIA-PERFORMANCE.md).
 The internal SRAM static data ends at approximately 10.4 KiB, with the separate
 16 KiB stack and retained recovery record. Linker region usage also includes
 the gap before that retained record, so it is not a runtime high-water mark.
@@ -48,8 +49,9 @@ application uses approximately 190 of its 412 KiB Flash region; linked SDRAM
 allocation is approximately 4.06 MiB. Drawing reads validated RAM only, and
 resource failures latch a fallback. See [font resources](EXTERNAL-FONT.md).
 
-DMA2D、双帧缓冲及硬件 FPU 尚未启用。先用真机分段计时确认总线竞争、撕裂和收益，
-传感器补偿运算顺序保持原样。壁纸加载已分批进行并有总时限，见 `APPEARANCE.md`。
+媒体版本已启用 JPEG 硬解、串行 DMA2D、单条带和完整双帧交换，并将连续扫描降至约 30 Hz；
+见 [媒体绘制](MEDIA-PERFORMANCE.md)。硬件 FPU 尚未启用，传感器补偿运算顺序保持
+原样。壁纸加载已分批进行并有总时限，见 `APPEARANCE.md`。下方保留早期版本测量。
 
 已增加 1 MHz flush/monitor 记录和 LCD 帧结束中断统计。六个启用页的首轮真机
 数据为约 40 Hz 扫描、每页 22 次拷贝、拷贝合计约 141 ms、LVGL 整轮刷新

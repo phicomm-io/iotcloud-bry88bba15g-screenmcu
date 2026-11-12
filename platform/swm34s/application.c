@@ -12,6 +12,10 @@
 #include "sensor_rx.h"
 #include "startup_ui.h"
 #include "display_diag.h"
+#include "media.h"
+#include "stream.h"
+#include "media_source.h"
+#include "fast_image.h"
 #include <errno.h>
 #include <math.h>
 #include <stdlib.h>
@@ -34,6 +38,11 @@ const char firmware_identity[] =
 #endif
 #ifdef SCREEN_UART2_QUIET
     "uart2=quiet;"
+#endif
+#if SCREEN_DMA2D
+    "dma2d=on;"
+#else
+    "dma2d=off;"
 #endif
 #if SCREEN_BACKLIGHT_MAX_PERCENT < 100
     "backlight_max=" SCREEN_STRINGIFY(SCREEN_BACKLIGHT_MAX_PERCENT) ";"
@@ -130,13 +139,39 @@ static void rtc_tick(uint32_t now) {
       screen_runtime_clock(&runtime, utc, runtime.timezone, now, false);
   }
 }
-static lv_color_t framebuffer[480 * 854]
+static lv_color_t framebuffer[2][480 * 854]
     __attribute__((section(".framebuffer"), aligned(64)));
-static lv_color_t drawbuffer[480 * 40];
+static lv_color_t drawbuffer[2][480 * 40];
 static lv_disp_draw_buf_t draw;
 static lv_disp_drv_t display;
 static screen_display_diag display_diagnostics;
 static bool diag_redraw;
+static bool display_dma_ready, display_dma_fault;
+static uint32_t display_dma_flushes;
+static unsigned display_front;
+static lv_area_t display_dirty;
+static bool display_dirty_valid;
+static struct {
+  lv_disp_drv_t *driver;
+  lv_area_t area;
+  lv_color_t *pixels;
+  uint32_t started, started_ms;
+  bool last;
+  unsigned phase;
+} pending_flush;
+void board_display_acceleration(uint8_t p[128]) {
+  scene_put32(p + 120, 1u | (display_dma_ready ? 2u : 0u) |
+                            (draw.buf2 ? 4u : 0u) | 16u |
+                            (display_dma_fault ? 8u : 0u) |
+                            (!(SYS->CLKEN0 & SYS_CLKEN0_DMA2D_Msk) ? 32u : 0u) |
+                            (!(SYS->CLKEN1 & SYS_CLKEN1_JPEG_Msk) ? 64u : 0u));
+  scene_put32(p + 124, display_dma_flushes);
+}
+static void display_scan_failed(void) {
+  /* Never release or overwrite a buffer while scanout may still own it. */
+  recovery_reason = 7;
+  board_recovery();
+}
 extern uint32_t __data_start__, __data_end__, __data_load__, __iram_start__,
     __iram_end__, __bss_start__, __bss_end__;
 extern char __heap_start__, __heap_end__;
@@ -201,7 +236,9 @@ static uint32_t maintenance_clock(void *context) {
   return board_ms;
 }
 static void sensors_reset(void);
+static void media_board_maintenance_released(void);
 static void maintenance_activity(void *context, bool active) {
+  if (!active) media_board_maintenance_released();
   (void)context;
   if (normal_ready) {
     if (active) {
@@ -260,6 +297,7 @@ static void diagnostic_notice(void) {
   if (n)
     board_send(NULL, wire, n);
 }
+#include "media_board.inc"
 static void pump(void) {
   for (unsigned budget = 0; budget < 4096; budget++) {
     int c = board_receive();
@@ -270,8 +308,12 @@ static void pump(void) {
       maintenance_init(&maintenance);
       continue;
     }
-    maintenance_feed(&maintenance, c, board_ms);
+    /* Factory OTA owns raw bytes exclusively; the zero-delimited media
+     * decoder consumes every binary byte before the maintenance text parser. */
+    if(maintenance.state||!media_feed(&media_uart,(unsigned)c,board_ms))
+      maintenance_feed(&maintenance, c, board_ms);
   }
+  media_board_link_poll();
   maintenance_tick(&maintenance, board_ms);
   /* The recovery service runs without SDRAM or the normal key owner. Keep
    * long-press shutdown available, but ignore presses during a transfer. */
@@ -296,6 +338,10 @@ static void pump(void) {
         (unsigned long)board_inherited_watchdog.clock,
         (unsigned long)board_inherited_watchdog.reset_status);
     board_send(NULL, notice, (size_t)n);
+    if(!maintenance.state){
+      n=snprintf(notice,sizeof(notice),"screen_media 1 %08lx %u 15 %lu\r\n",(unsigned long)guard.session,mode,(unsigned long)media_link_state.rate);
+      board_send(NULL,notice,(size_t)n);
+    }
     if (running_md5[0]) {
       n = snprintf(notice, sizeof(notice), "screen_image 1 %s\r\n", running_md5);
       board_send(NULL, notice, (size_t)n);
@@ -317,18 +363,7 @@ void board_recovery(void) {
     board_idle();
   }
 }
-static void flush(lv_disp_drv_t *d, const lv_area_t *a, lv_color_t *p) {
-  uint32_t start=board_time_us();
-  for (int y = a->y1; y <= a->y2; y++) {
-    if (y >= 0 && y < 854 && a->x1 >= 0 && a->x2 < 480)
-      memcpy(framebuffer + y * 480 + a->x1, p,
-             (a->x2 - a->x1 + 1) * sizeof(*p));
-    p += a->x2 - a->x1 + 1;
-  }
-  screen_diag_flush(&display_diagnostics,a->x1,a->y1,a->x2,a->y2,
-                    start,board_time_us(),lv_disp_flush_is_last(d));
-  lv_disp_flush_ready(d); // Exactly the original completion, after the copy.
-}
+#include "display_dma.inc"
 static void display_monitor(lv_disp_drv_t *d,uint32_t ms,uint32_t pixels){
   (void)d;screen_diag_monitor(&display_diagnostics,ms,pixels,board_time_us());
 }
@@ -558,12 +593,16 @@ static void power_tick_board(void) {
   bool reminder = runtime.reminder_wake;
   unsigned reminder_page = runtime.model.page;
   runtime.reminder_wake = false;
-  if (!extended && power.asleep && !runtime.model.asleep) {
+  if (!extended && power.asleep && !runtime.model.asleep && !media_current(&media)) {
     power.asleep = false;
     power.idle = power.dnd_idle = 0;
   }
   bool front_down = !GPIO_GetBit(GPIOD, 11), rear_down = !GPIO_GetBit(GPIOD, 13);
   bool activity = front_down || rear_down || power.front || power.rear;
+  bool notification=media_current(&media)&&media.presented&&!media.suspended;
+  bool released=power.front&&!front_down&&!power.front_long;
+  bool consumed=notification||media.tap_pending;
+  if(notification)activity=false;
   if (extended) {
     uint8_t pages = 0;
     for (unsigned i = 0; i < runtime.model.scene.pages; i++)
@@ -577,7 +616,9 @@ static void power_tick_board(void) {
   unsigned event =
       power_tick(&power, !GPIO_GetBit(GPIOD, 11), !GPIO_GetBit(GPIOD, 13),
                  runtime.model.charging, runtime.model.dnd);
-  if (event & POWER_PAGE)
+  unsigned page_tap=media_button(&media,board_ms,front_down,released,
+                                 (event & POWER_PAGE)!=0,power.ota||power.front_long);
+  if (page_tap)
     screen_event(&runtime.model, 1);
   if (event & POWER_PROVISION)
     factory_provision(&factory);
@@ -595,7 +636,7 @@ static void power_tick_board(void) {
     display_step(&runtime.display, board_ms,
                   runtime.model.clock_valid ? runtime.clock_epoch : 0,
                   runtime.timezone, !runtime.model.charging, power.brightness,
-                  pages, &runtime.model.page, (event & POWER_WAKE) || reminder,
+                  pages, &runtime.model.page, ((!notification&&!consumed)&&(event & POWER_WAKE)) || reminder,
                   activity, power.ota);
     if (reminder) runtime.model.page = reminder_page;
     power.asleep = runtime.display.sleeping;
@@ -603,6 +644,13 @@ static void power_tick_board(void) {
   runtime.model.asleep = power.ota ? false : power.asleep;
   unsigned target = extended ? runtime.display.target : power.asleep ? 0 : power.brightness;
   unsigned ceiling = extended ? runtime.display.policy.ceiling : 100;
+  const media_notice *notice=media_current(&media);
+  if(notice&&!media.suspended&&!power.ota){
+    runtime.model.asleep=false;
+    if(target<notice->brightness)target=notice->brightness;
+    board_backlight(power_backlight_target(target,ceiling,false,false));
+    return;
+  }
   board_backlight(power_backlight_target(target, ceiling, power.asleep, power.ota));
 }
 static void resource_service(void *c) {
@@ -645,6 +693,7 @@ void screen_start(void) {
   guard.restart = guard_restart;
   guard.nor_mode = board_nor_mode;
   guard_init(&guard, board_nonce(NULL), board_ms, forced);
+  media_link_state.rate=115200;media_uart.packet=media_board_packet;
   /* Hold the original power latch throughout the UART recovery window. No
    * LCD, SDRAM, sensor or factory-business initialization has run yet. */
   GPIO_SetBit(GPIOM, 7);
@@ -686,7 +735,11 @@ void screen_start(void) {
   for (to = &__bss_start__; to < &__bss_end__;)
     *to++ = 0;
   memset(framebuffer, 0, sizeof(framebuffer));
+  board_jpeg_idle();
   screen_runtime_init(&runtime);
+  media_init(&media);media.decode=board_jpeg_decode;
+  stream_init(&stream);stream.decode=board_jpeg_decode;stream.send=media_board_socket;
+  media_source_init(&media_source);
   runtime.send = board_send;
   runtime.factory = factory_line;
   runtime.context = &factory;
@@ -717,12 +770,17 @@ void screen_start(void) {
   stage(STAGE_LVGL);
   lv_init();
   board_lvgl_tick_start();
-  lv_disp_draw_buf_init(&draw, drawbuffer, NULL, 480 * 40);
+  display_dma_init();
+  /* Serialize pixel drawing and DMA reads to avoid three concurrent SDRAM
+   * users (CPU, DMA2D and continuous LCD). The second strip is startup scratch. */
+  lv_disp_draw_buf_init(&draw, drawbuffer[0], NULL, 480 * 40);
   lv_disp_drv_init(&display);
   display.hor_res = 480;
   display.ver_res = 854;
   display.draw_buf = &draw;
   display.flush_cb = flush;
+  display.wait_cb = display_flush_wait;
+  display.draw_ctx_init = screen_draw_ctx_init;
   display.monitor_cb = display_monitor;
   lv_disp_drv_register(&display);
   startup_checkpoint();
@@ -769,6 +827,15 @@ void screen_start(void) {
     display_diag_poll();
     uint32_t now = board_ms;
     screen_runtime_tick(&runtime, now);
+    bool media_busy=maintenance.state||wallpaper.active||font_bank.active;
+    media_tick(&media,now,power.asleep||
+      (runtime.display.configured?runtime.display.target==0:power.brightness==0),media_busy);
+    bool stream_visible=false;
+    for(unsigned i=0;i<runtime.model.scene.count;i++)
+      if(runtime.model.scene.item[i].page==runtime.model.page&&runtime.model.scene.item[i].type==SC_IMAGE)stream_visible=true;
+    media_board_socket_poll();
+    media_source_poll(&media_source,&media,&stream,now,stream_visible,
+      board_backlight_percent()&&!runtime.model.asleep&&!media_busy,media_link_state.ready);
     control_check();
     if (!maintenance.state) {
       font_bank_poll(&font_bank);
@@ -819,13 +886,17 @@ void screen_start(void) {
                   ++runtime.tx_sequence, report, io?sizeof(report):16);
         if (n) board_send(&factory, line, n);
       }
+      const media_notice *display_notice=media_current(&media);
+      unsigned temporary_target=display_notice&&!media.suspended&&!power.ota ?
+                                    display_notice->brightness : 0;
       if (runtime.display.configured)
         screen_runtime_display_report(&runtime, power.brightness,
              runtime.display.policy.ceiling < SCREEN_BACKLIGHT_MAX_PERCENT ?
                  runtime.display.policy.ceiling : SCREEN_BACKLIGHT_MAX_PERCENT,
-             board_backlight_percent());
+             board_backlight_percent(), temporary_target);
       else
-        screen_runtime_backlight(&runtime, power.brightness,
+        screen_runtime_backlight(&runtime, power.brightness < temporary_target ?
+             temporary_target : power.brightness,
              SCREEN_BACKLIGHT_MAX_PERCENT,
              board_backlight_percent(), power.asleep);
     }
@@ -835,7 +906,8 @@ void screen_start(void) {
       runtime.model.battery_valid = mv > 0;
       runtime.model.battery_percent = battery_permille(mv) / 10;
     }
-    if (diag_redraw || (int32_t)(now - next_render) >= 0 ||
+    static uint32_t rendered_media,rendered_stream;
+    if (rendered_media!=media.revision||rendered_stream!=stream.revision||diag_redraw || (int32_t)(now - next_render) >= 0 ||
         rendered_page != runtime.model.page ||
         rendered_asleep != runtime.model.asleep ||
         rendered_layout != runtime.model.scene.revision ||
@@ -847,6 +919,7 @@ void screen_start(void) {
         screen_diag_begin(&display_diagnostics,runtime.model.page+1,board_time_us());
       if(diag_redraw){lv_obj_invalidate(lv_scr_act());diag_redraw=false;}
       next_render = now + 1000;
+      rendered_media=media.revision;rendered_stream=stream.revision;
       rendered_page = runtime.model.page;
       rendered_asleep = runtime.model.asleep;
       rendered_layout = runtime.model.scene.revision;
@@ -859,6 +932,10 @@ void screen_start(void) {
     }
     screen_startup_ui(&runtime.model,board_ms);
     lv_timer_handler();
+    /* Complete the final strip before reporting presentation or starting the
+     * next foreground media decode. Strip drawing and DMA remain serialized. */
+    while (!display_flush_poll()) { board_watchdog_feed(); board_idle(); }
+    if(media_current(&media)&&!runtime.model.asleep&&!runtime.model.ota&&board_backlight_percent())media_present(&media);
     control_check();
     stage(STAGE_NORMAL);
     board_watchdog_feed();

@@ -5,6 +5,8 @@
 #include "wallpaper.h"
 #include "resources.h"
 #include "ui_language.h"
+#include "media.h"
+#include "stream.h"
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -19,6 +21,46 @@ static unsigned BG,CARD,INK,MUTED,GRID,colors[3];
 static const screen_appearance *appearance;
 static const appearance_item *custom;
 static bool have_wallpaper;
+static lv_obj_t *box(lv_obj_t *,int,int,int,int,unsigned,int);
+static lv_img_dsc_t media_image_descriptor,stream_image_descriptor;
+static void picture_cover(lv_event_t *event) {
+  lv_cover_check_info_t *info=lv_event_get_param(event);
+  if(info->res==LV_COVER_RES_MASKED)return;
+  lv_obj_t *image=lv_obj_get_child(lv_event_get_target(event),0);
+  if(!image||!lv_obj_check_type(image,&lv_img_class)||
+     lv_img_get_angle(image)||lv_img_get_antialias(image)||
+     lv_obj_get_style_img_opa(image,0)!=LV_OPA_COVER||
+     lv_obj_get_style_opa(image,0)!=LV_OPA_COVER)return;
+  const lv_img_dsc_t *descriptor=lv_img_get_src(image);
+  unsigned zoom=lv_img_get_zoom(image);
+  if(!zoom||!descriptor||descriptor->header.cf!=LV_IMG_CF_TRUE_COLOR)return;
+  lv_area_t coords;lv_obj_get_coords(image,&coords);
+  lv_point_t pivot;lv_img_get_pivot(image,&pivot);
+  int32_t inverse=65536/zoom;
+  /* Check the exact nearest-neighbor samples, excluding transformed padding.
+   * This clip may cover opaque image pixels while its letterbox stays clear.
+   * LVGL 8's scaled image object retains unscaled bounds during top-object
+   * search, so the clip supplies this conservative coverage information. */
+  const lv_area_t *area=info->area;
+  int32_t x1=((area->x1-coords.x1-pivot.x)*inverse+pivot.x*256+128)>>8;
+  int32_t x2=((area->x2-coords.x1-pivot.x)*inverse+pivot.x*256+128)>>8;
+  int32_t y1=((area->y1-coords.y1-pivot.y)*inverse+pivot.y*256+128)>>8;
+  int32_t y2=((area->y2-coords.y1-pivot.y)*inverse+pivot.y*256+128)>>8;
+  if(x1>=0&&y1>=0&&x2<(int32_t)descriptor->header.w&&y2<(int32_t)descriptor->header.h)
+    info->res=LV_COVER_RES_COVER;
+}
+static lv_obj_t *picture(lv_obj_t *parent,lv_img_dsc_t *descriptor,const uint16_t *pixels,unsigned width,unsigned height,int x,int y,int w,int h,bool cover){
+  if(!width||!height||w<=0||h<=0)return NULL;
+  lv_obj_t *clip=box(parent,x,y,w,h,0,0);
+  lv_obj_set_style_bg_opa(clip,LV_OPA_TRANSP,0);
+  lv_obj_add_event_cb(clip,picture_cover,LV_EVENT_COVER_CHECK,NULL);
+  *descriptor=(lv_img_dsc_t){.header={.cf=LV_IMG_CF_TRUE_COLOR,.w=width,.h=height},.data_size=width*height*2u,.data=(const uint8_t *)pixels};
+  lv_obj_t *image=lv_img_create(clip);lv_img_set_src(image,descriptor);
+  unsigned a=(unsigned)w*256/width,b=(unsigned)h*256/height,zoom=cover?(a>b?a:b):(a<b?a:b);
+  if(!zoom)zoom=1;
+  lv_img_set_zoom(image,zoom);lv_img_set_antialias(image,false);lv_obj_center(image);
+  return image;
+}
 /* Only fixed-shape clock/value cards reuse label children. Their text and
  * fitted font change without deleting objects or touching other cards. */
 static lv_obj_t *reuse_labels;
@@ -463,6 +505,18 @@ static void chart(lv_obj_t *c,const screen_model *m,const scene_item *it,
   }
 }
 static lv_obj_t *component(lv_obj_t *root,const screen_model *m,const scene_item *it,uint32_t now,lv_obj_t *existing) {
+  if(existing&&it->type==SC_IMAGE&&stream.width&&stream.height) {
+    lv_obj_t *clip=lv_obj_get_child(existing,-1);
+    lv_obj_t *image=clip?lv_obj_get_child(clip,0):NULL;
+    if(image&&lv_obj_check_type(image,&lv_img_class)&&
+       lv_obj_get_width(image)==(int)stream.width&&lv_obj_get_height(image)==(int)stream.height) {
+      /* The decoded arena changes in place. Keep the card and its letterbox
+       * intact; invalidate only the transformed image's visible bounds. */
+      lv_img_cache_invalidate_src(&stream_image_descriptor);
+      lv_obj_invalidate(image);
+      return existing;
+    }
+  }
   int x=UI_MARGIN+it->x*UI_COLUMN_PITCH,y=UI_GRID_TOP+it->y*UI_ROW_PITCH;
   int w=it->w*UI_COLUMN_PITCH-UI_GRID_GAP,h=it->h*UI_ROW_PITCH-UI_GRID_GAP;
   bool clock=it->type==SC_CLOCK;
@@ -470,9 +524,9 @@ static lv_obj_t *component(lv_obj_t *root,const screen_model *m,const scene_item
   lv_obj_t *c=existing?existing:box(root,x,y,w,h,wc(0),12);
   reuse_labels=(clock||it->type==SC_VALUE)?c:NULL;reuse_index=0;
   if(existing&&!reuse_labels)lv_obj_clean(c);
-  unsigned alpha=appearance_opacity(appearance,custom,it->type,it->h,have_wallpaper);
+  unsigned alpha=it->type==SC_IMAGE?0:appearance_opacity(appearance,custom,it->type,it->h,have_wallpaper);
   lv_obj_set_style_bg_opa(c,alpha*255/100,0);
-  if(have_wallpaper) {lv_obj_set_style_border_width(c,1,0);lv_obj_set_style_border_color(c,lv_color_hex(appearance_color(appearance,AP_LINE)),0);lv_obj_set_style_border_opa(c,alpha*100/100,0);}
+  if(have_wallpaper) {lv_obj_set_style_border_width(c,it->type==SC_IMAGE?0:1,0);lv_obj_set_style_border_color(c,lv_color_hex(appearance_color(appearance,AP_LINE)),0);lv_obj_set_style_border_opa(c,alpha*100/100,0);}
   int pad=clock?0:12;w-=pad*2;h-=24;
   lv_obj_set_style_pad_left(c,pad,0);lv_obj_set_style_pad_top(c,12,0);
   const scene_data *d=data_for(m,it->id);bool fresh=scene_data_fresh(d,now);
@@ -535,6 +589,10 @@ static lv_obj_t *component(lv_obj_t *root,const screen_model *m,const scene_item
       label(c,0,y,w,42,r->title,&zh32,wc(1));label(c,0,y+48,w,h-y-48<108?h-y-48:108,r->text,&zh32,wc(4));row++;
     }
     if(!row)label(c,0,64,w,80,"暂无提醒",&zh32,MUTED);
+  } else if(it->type==SC_IMAGE) {
+    int top=it->hide_title?0:48;
+    if(stream.width&&stream.height)picture(c,&stream_image_descriptor,stream.pixels,stream.width,stream.height,0,top,w,h-top,it->image_fit!=0);
+    else label(c,0,top,w,h-top,english?"Waiting for camera":"等待摄像头画面",&zh32,MUTED);
   }
   return c;
 }
@@ -568,6 +626,7 @@ static uint64_t content_hash(const screen_model *m,const scene_item *it,uint32_t
       hash=hash_bytes(hash,&m->weather.fields,sizeof(m->weather)-offsetof(screen_weather,fields));
     }
     else if(it->type==SC_REMINDERS)hash=hash_bytes(hash,m->reminders,sizeof(m->reminders));
+    else if(it->type==SC_IMAGE){const media_notice *notice=media_current(&media);if(!notice||!notice->source[0]){HASH(stream.pixel_crc);HASH(media.source_ready);HASH(stream.width);HASH(stream.height);}}
     if((it->type==SC_LINE||it->type==SC_BAR||it->type==SC_PIE)&&it->binding!=SC_BIND_EXTERNAL) {
       uint32_t minute=now/60000;HASH(minute);HASH(m->head);HASH(m->count);
       unsigned bindings[]={it->binding,it->binding2,it->binding3};
@@ -607,6 +666,80 @@ static void draw_charging(lv_event_t *e) {
   lv_point_t points[]={{a.x1+11,a.y1+2},{a.x1+5,a.y1+11},{a.x1+12,a.y1+9},{a.x1+6,a.y1+18}};
   for(unsigned i=1;i<4;i++)lv_draw_line(lv_event_get_draw_ctx(e),&line,&points[i-1],&points[i]);
 }
+/* This layer is independent of the business page. Stable LVGL objects let
+ * text, queue metadata and live pixels invalidate only their own rectangles. */
+static bool notification_ui(lv_obj_t *root,const screen_model *m,bool reset) {
+  static struct {
+    lv_obj_t *overlay,*heading,*back[2],*card,*title,*text,*loading,*image,*dots[5];
+    unsigned count,view,width,height,image_height;
+    uint32_t crc;
+    bool remote;
+  } n;
+  if(reset)memset(&n,0,sizeof(n));
+  const media_notice *notice=media_current(&media);
+  if(!notice||media.suspended||m->ota) {
+    if(!n.overlay)return false;
+    lv_obj_del(n.overlay);memset(&n,0,sizeof(n));return true;
+  }
+  bool created=!n.overlay,changed=created;
+  if(created) {
+    n.overlay=box(root,0,0,480,854,BG,0);
+    n.heading=label(n.overlay,24,24,432,44,"",&zh32,INK);
+    n.back[0]=box(n.overlay,40,80,400,660,lv_color_to32(lv_color_mix(lv_color_hex(CARD),lv_color_hex(BG),110))&0xffffff,28);
+    n.back[1]=box(n.overlay,28,96,424,660,lv_color_to32(lv_color_mix(lv_color_hex(CARD),lv_color_hex(BG),180))&0xffffff,28);
+    n.card=box(n.overlay,16,112,448,662,CARD,28);
+    n.title=label(n.card,20,20,408,80,"",&zh32,INK);
+    n.text=label(n.card,20,112,408,526,"",screen_ui_font(28,false),INK);
+    n.loading=label(n.card,20,108,408,44,english?"Loading image…":"正在加载画面…",&zh32,MUTED);
+    label(n.overlay,24,786,432,25,english?"Tap to dismiss · Double-tap to switch":"单击确认 · 双击切换",screen_ui_font(20,false),MUTED);
+    for(unsigned i=0;i<5;i++)n.dots[i]=box(n.overlay,0,830,12,12,GRID,6);
+  }
+  unsigned count=media_count(&media),view=media_view(&media),limit=count<MEDIA_STACK?count:MEDIA_STACK;
+  if(created||n.count!=count||n.view!=view) {
+    char heading[64];snprintf(heading,sizeof(heading),english?"Notifications  %u/%u":"通知  %u/%u",view,count);
+    lv_label_set_text(n.heading,heading);
+    for(unsigned i=0;i<2;i++) {
+      bool show=count>(i?1u:2u);
+      if(show)lv_obj_clear_flag(n.back[i],LV_OBJ_FLAG_HIDDEN);
+      else lv_obj_add_flag(n.back[i],LV_OBJ_FLAG_HIDDEN);
+    }
+    int left=(480-(int)(limit+1)*28)/2;
+    for(unsigned i=0;i<5;i++) {
+      if(i<=limit)lv_obj_clear_flag(n.dots[i],LV_OBJ_FLAG_HIDDEN);
+      else lv_obj_add_flag(n.dots[i],LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_x(n.dots[i],left+(int)i*28+8);
+      lv_obj_set_style_bg_color(n.dots[i],lv_color_hex(i==view?INK:GRID),0);
+    }
+    n.count=count;n.view=view;changed=true;
+  }
+  const char *title=screen_translate(english,notice->title),*text=screen_translate(english,notice->text);
+  if(strcmp(lv_label_get_text(n.title),title)) {lv_label_set_text(n.title,title);changed=true;}
+  bool remote=notice->source[0]!=0;
+  unsigned width=remote?(media.source_ready?stream.width:0):media.width;
+  unsigned height=remote?(media.source_ready?stream.height:0):media.height;
+  unsigned image_height=text[0]?280:520;
+  bool layout=created||width!=n.width||height!=n.height||remote!=n.remote||image_height!=n.image_height;
+  if(layout) {
+    if(n.image) {lv_obj_del(lv_obj_get_parent(n.image));n.image=NULL;}
+    if(width&&height)n.image=picture(n.card,&media_image_descriptor,remote?stream.pixels:media.pixels,width,height,12,108,424,image_height,false);
+    if(remote&&(!width||!height))lv_obj_clear_flag(n.loading,LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(n.loading,LV_OBJ_FLAG_HIDDEN);
+    n.width=width;n.height=height;n.remote=remote;n.image_height=image_height;changed=true;
+  }
+  int text_top=(width&&height)?108+(int)image_height+12:remote?168:112;
+  if(layout||strcmp(lv_label_get_text(n.text),text)) {
+    int available=638-text_top;unsigned size=28;lv_point_t bounds;
+    while(size>16) {lv_txt_get_size(&bounds,text,screen_ui_font(size,false),0,0,408,LV_TEXT_FLAG_NONE);if(bounds.y<=available)break;size-=2;}
+    lv_label_set_text(n.text,text);lv_obj_set_y(n.text,text_top);lv_obj_set_height(n.text,available);
+    lv_obj_set_style_text_font(n.text,screen_ui_font(size,false),0);changed=true;
+  }
+  uint32_t crc=remote?stream.pixel_crc:media.pixel_crc;
+  if(n.image&&(layout||n.crc!=crc)) {
+    lv_img_cache_invalidate_src(&media_image_descriptor);lv_obj_invalidate(n.image);changed=true;
+  }
+  n.crc=crc;
+  return changed;
+}
 bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   english=m->appearance.language==1;
   (void)demo;static uint64_t previous;static bool have;
@@ -644,9 +777,15 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   lv_obj_t *battery=box(root,SCREEN_WIDTH-UI_MARGIN-78,UI_MARGIN+6,72,27,GRID,5);
   battery_fill=box(battery,3,3,1,21,colors[0],2);
   charging=box(battery,27,3,18,21,GRID,2);
+  lv_obj_set_style_bg_opa(charging,LV_OPA_TRANSP,0);
   lv_obj_add_event_cb(charging,draw_charging,LV_EVENT_DRAW_MAIN,NULL);
   box(root,SCREEN_WIDTH-UI_MARGIN-5,UI_MARGIN+13,5,13,GRID,1);
   }
+  const media_notice *notice=media_current(&media);
+  bool covered=notice&&!media.suspended&&!m->ota;
+  /* The opaque notification owns the visible surface. Keep business objects
+   * intact and catch their data up once when the overlay is removed. */
+  if(!covered||rebuild) {
   if(rebuild||network_on!=m->network) {
     network_on=m->network;lv_obj_invalidate(network);changed=true;
   }
@@ -672,9 +811,11 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
     }
     slot++;
   }
+  }
   reuse_labels=NULL;
   if(rebuild) {
   unsigned total=0;for(unsigned i=0;i<m->scene.pages;i++)total+=m->scene.page[i].enabled;
+  unsigned page=m->page<m->scene.pages?m->page:0;
   unsigned j=0;for(unsigned i=0;i<m->scene.pages;i++)if(m->scene.page[i].enabled) {
     /* Integer boundaries cover every edge pixel, even with seven pages. The
      * rail overlays the top edge and reserves no row beneath the widgets. */
@@ -686,5 +827,6 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   }
   if(m->ota){lv_obj_t *o=box(root,32,300,416,160,CARD,20);label(o,16,24,384,110,"正在更新\n请保持供电",&zh32,colors[0]);}
   }
+  changed=notification_ui(root,m,rebuild)||changed;
   return changed;
 }

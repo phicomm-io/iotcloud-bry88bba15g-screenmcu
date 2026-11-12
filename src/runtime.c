@@ -134,6 +134,8 @@ static void receive(void *context, const char *line, size_t length) {
         for(unsigned i=0;i<s->scene_transfer.bytes[9]&&i<SCENE_ITEMS;i++)
           if(s->scene_transfer.bytes[304+288*i+84]||s->scene_transfer.bytes[304+288*i+85])points_ok=false;
       bool compact_ok=true;
+      if(payload[0]==SC_MSG_COMMIT && !(s->caps.capabilities&SCREEN_CAP_IMAGE) && s->scene_transfer.total==SCENE_BYTES)
+        for(unsigned i=0;i<s->scene_transfer.bytes[9]&&i<SCENE_ITEMS;i++)if(s->scene_transfer.bytes[304+288*i+3]==SC_IMAGE)compact_ok=false;
       if(payload[0]==SC_MSG_COMMIT && !(s->caps.capabilities&SCREEN_CAP_COMPACT_WIDGETS) && s->scene_transfer.total==SCENE_BYTES)
         for(unsigned i=0;i<s->scene_transfer.bytes[9]&&i<SCENE_ITEMS;i++) {
           const uint8_t *p=s->scene_transfer.bytes+304+288*i;
@@ -235,7 +237,7 @@ bool screen_runtime_offer(screen_runtime *s, uint32_t nonce) {
                                       SCREEN_CAP_MODULE_CONTROL | SCREEN_CAP_APPEARANCE |
                                       SCREEN_CAP_WALLPAPER | SCREEN_CAP_MULTI_UNITS |
                                       SCREEN_CAP_HIDE_TITLE | SCREEN_CAP_FONT_BANK |
-                                      SCREEN_CAP_LANGUAGE | SCREEN_CAP_CHART_POINTS | SCREEN_CAP_PAGE_RAIL | SCREEN_CAP_RESOURCE_IO | SCREEN_CAP_DISPLAY_DIAG | SCREEN_CAP_PAGE_CONTROL | SCREEN_CAP_COMPACT_WIDGETS);
+                                      SCREEN_CAP_LANGUAGE | SCREEN_CAP_CHART_POINTS | SCREEN_CAP_PAGE_RAIL | SCREEN_CAP_RESOURCE_IO | SCREEN_CAP_DISPLAY_DIAG | SCREEN_CAP_PAGE_CONTROL | SCREEN_CAP_COMPACT_WIDGETS | SCREEN_CAP_MEDIA | SCREEN_CAP_IMAGE | SCREEN_CAP_BINARY_LINK | SCREEN_CAP_URL_PUSH | SCREEN_CAP_PUSH_UPDATE | SCREEN_CAP_PUSH_POLICY);
   if (!used || !s->send(s->context, line, used)) {
     screen_caps_reset(&s->caps);
     return false;
@@ -262,17 +264,20 @@ bool screen_runtime_backlight(screen_runtime *s, unsigned requested,
   return true;
 }
 bool screen_runtime_display_report(screen_runtime *s, unsigned normal,
-                                   unsigned ceiling, unsigned applied) {
+                                   unsigned ceiling, unsigned applied,
+                                   unsigned temporary_target) {
   unsigned target = s && s->model.ota ? SCREEN_OTA_BRIGHTNESS :
                     s ? s->display.target : 0;
+  bool override = s && !s->model.ota && temporary_target;
+  if (override && target < temporary_target) target = temporary_target;
   if (!s || !s->display.configured || !s->caps.ready || !s->send ||
       !(s->caps.capabilities & SCREEN_CAP_DISPLAY) ||
       s->tx_sequence == UINT32_MAX || normal > 100 || ceiling > 100 ||
-      applied > ceiling || applied > target || s->model.page >= 8)
+      applied > ceiling || applied > target || temporary_target > 100 || s->model.page >= 8)
     return false;
   uint8_t payload[13] = {SCREEN_MSG_BACKLIGHT, 2, normal, ceiling, applied,
-                         s->model.ota ? false : s->display.sleeping, target,
-                         s->model.ota ? 0 : s->display.reason, s->model.page};
+                         (s->model.ota || override) ? false : s->display.sleeping, target,
+                         (s->model.ota || override) ? 0 : s->display.reason, s->model.page};
   scene_put32(payload + 9, s->display.policy.revision);
   char wire[128];
   size_t n = screen_link_encode(wire, sizeof(wire), s->caps.session,

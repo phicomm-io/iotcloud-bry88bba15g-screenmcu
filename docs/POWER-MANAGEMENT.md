@@ -13,7 +13,7 @@
 
 配套 G3 原厂 ESP32 `V01.02.00` 将 GPIO2 配置为下拉输入和高电平轻睡眠唤醒源，轮询该输入并控制 `sensor3` APB 频率锁，电源参数为最高 80 MHz、最低 10 MHz、自动轻睡眠。两端逻辑对应 MCU 的 PA5 唤醒输出。ESP32 侧实现与构建配置见配套工程 `BRY88BBA15G/runtime.inc` 和 `DAIKIN/sdkconfig*.defaults`。
 
-上述 MCU 空闲函数使用 CPU 的等待中断指令。此次没有发现原厂应用动态调整 MCU 主频的证据，因此保留已验证的 CPU、LCD、SDRAM 和 UART 时钟。
+上述 MCU 空闲函数使用 CPU 的等待中断指令。没有发现原厂应用动态调整 MCU 主频的证据；社区实现保留 CPU、SDRAM 和 UART 时钟，媒体版本将 LCD 连续扫描改为约 30 Hz，见下文。
 
 ## 社区实现
 
@@ -21,9 +21,31 @@
 
 主循环、启动维护窗口、恢复循环和毫秒延时复用该等待函数。保留 1 kHz SysTick；此实现没有移植原厂 FreeRTOS 的 tickless 时间补偿。
 
+媒体版本的静态画面保留前台帧缓冲，不因时间循环重复绘制和搬运。JPEG 从启动及解码完成后关闭其时钟，DMA2D 在搬运完成后关闭其时钟；下次使用前恢复，显示缓冲内容仍保存在 SDRAM。旧帧的脏区延后同步，已被下一次重画覆盖的像素不再复制。LCD 像素时钟为 120 MHz / 8 = 15 MHz，按 560×894 总时序连续扫描，约 29.96 Hz。不能直接停止 LCD 或 SDRAM 刷新来保留可见图像。诊断 `render_flags` 的 bit 5、6 分别表示采样当时 DMA2D、JPEG 的时钟已关闭；这两个标记不能换算为节电百分比。
+
 PA5 在发送前置高，等待 40 ms 后发送首字节，覆盖原厂 ESP32 30 ms 的唤醒轮询周期。最后一批数据入队一秒后，且 UART 发送器空闲时清低。关机时立即清低。状态心跳每两秒发送，低于配套 ESP32 模块状态的五秒有效期，并给唤醒尾期留出空闲间隔；按键变化和命令响应仍即时发送。
 
 配套 ESP32 为屏幕 UART 选择 `REF_TICK`，避免 10 MHz 动态降频改变串口波特率；按 MCU 唤醒线、UART 发送及升级状态持有 APB 频率锁。仅升级 ESP32、仍使用持续拉高 PA5 的旧社区 MCU 时，会持续持有 MCU 唤醒锁，需要同时更新屏幕 MCU 才能得到通信间隙。
+
+摄像头及地址通知收到与上一帧像素 CRC、尺寸相同的画面时，不再使图像区域失效。
+接收、JPEG 解码和 CRC 校验仍会执行；静态地址的重复拉取因此可以继续更新网络
+状态，同时省去重复绘制与搬运。CRC 使用 1 KiB Flash 查表，不增加运行时表内存。
+
+ESP32 的 TCP 透传任务在没有连接或等待 MCU 接收额度时阻塞于命令队列，新的
+打开、发送、额度和关闭命令会立即唤醒它；仅在可接收网络数据时保留 10 ms 轮询。
+`power_management` 中的 `relay_idle_blocked`、`relay_idle_waits`、
+`relay_timed_poll_wakeups`、`relay_jobs_handled` 可检查空闲期间是否仍有定时唤醒，
+以及后续流能否恢复。高于 115200 的串口使用 APB 时钟并保留 APB 与轻睡眠锁，
+避免高速链路受动态时钟变化影响；默认 115200 仍使用 REF_TICK。
+
+Repeated camera/URL notification frames with the same RGB CRC and dimensions
+retain the displayed pixels. Reception, JPEG decoding and checksum calculation
+still run; LVGL drawing and DMA copies are skipped. CRC uses a constant 1 KiB
+Flash table. The ESP TCP relay blocks on its command queue while it has no socket
+or MCU receive credit. Open/write/credit/close jobs wake it immediately; only an
+eligible network read retains the 10 ms poll. The relay diagnostic counters in
+`power_management` expose this behavior. UART rates above 115200 retain APB and
+no-light-sleep locks; the default 115200 uses REF_TICK.
 
 ## 验证
 

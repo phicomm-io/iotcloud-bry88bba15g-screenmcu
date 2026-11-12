@@ -3,6 +3,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "jpeg_image.h"
+bool board_jpeg_decode(void *,const uint8_t *,size_t,const media_jpeg *,uint16_t *,unsigned);
+void board_jpeg_status(uint8_t[4]);
+void board_jpeg_registers(uint8_t[MEDIA_DECODER_DETAIL_BYTES]);
+void board_jpeg_idle(void);
+bool board_uart_baud(uint32_t);
 #ifndef SCREEN_BACKLIGHT_MAX_PERCENT
 #define SCREEN_BACKLIGHT_MAX_PERCENT 100
 #endif
@@ -21,10 +27,13 @@ uint32_t board_nonce(void *);
 bool board_sdram(void);
 extern volatile uint32_t board_sdram_error;
 void board_display(void);
+void board_display_present(const void *pixels);
+bool board_display_present_pending(void);
 uint32_t board_time_us(void);
 void board_lvgl_tick_start(void);
 void board_lvgl_tick_stop(void);
 void board_display_diag(uint8_t summary[128]);
+void board_display_acceleration(uint8_t summary[128]);
 void board_backlight(unsigned);
 unsigned board_backlight_percent(void);
 bool board_send(void *, const char *, size_t);

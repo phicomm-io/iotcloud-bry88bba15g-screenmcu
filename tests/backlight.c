@@ -55,13 +55,27 @@ int main(void) {
   assert(power_backlight_target(54, 100, false, true) == 10);
   assert(power_backlight_target(0, 100, true, true) == 10);
   assert(power_backlight_target(54, 5, false, true) == 5);
-  assert(screen_runtime_display_report(&s, 54, 100, 10));
+  assert(screen_runtime_display_report(&s, 54, 100, 10, 0));
   assert(last.requested == 54 && last.target == 10 && last.applied == 10 &&
          !last.asleep && last.reason == 0);
   assert(s.display.sleeping && s.display.target == 0 && s.display.reason == 1);
   s.model.ota = false;
-  assert(screen_runtime_display_report(&s, 54, 100, 0));
+  assert(screen_runtime_display_report(&s, 54, 100, 0, 0));
   assert(last.asleep && last.target == 0 && last.reason == 1);
+  /* Notification wake reports the real PWM without changing saved policy. */
+  assert(screen_runtime_display_report(&s, 0, 100, 30, 30));
+  assert(last.requested == 0 && last.target == 30 && last.applied == 30 &&
+         !last.asleep && last.reason == 0);
+  assert(s.display.sleeping && s.display.target == 0 && s.display.reason == 1);
+  assert(screen_runtime_display_report(&s, 0, 10, 10, 30));
+  assert(last.target == 30 && last.ceiling == 10 && last.applied == 10);
+  assert(!screen_runtime_display_report(&s, 0, 10, 11, 30));
+  assert(screen_runtime_display_report(&s, 0, 100, 0, 0));
+  assert(last.asleep && last.target == 0 && last.applied == 0);
+  s.model.ota = true;
+  assert(screen_runtime_display_report(&s, 0, 100, 10, 30));
+  assert(last.target == 10 && last.applied == 10);
+  s.model.ota = false;
   assert(power_backlight_target(54, 100, true, false) == 0);
   assert(power_backlight_target(54, 100, false, false) == 54);
   assert(power_backlight_target(54, 40, false, false) == 40);

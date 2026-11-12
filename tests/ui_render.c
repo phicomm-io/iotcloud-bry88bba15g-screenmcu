@@ -3,9 +3,12 @@
 #include "responsive_font.h"
 #include "wallpaper.h"
 #include "resources.h"
+#include "media.h"
+#include "stream.h"
 #include "ui_language.h"
 #include <stdlib.h>
 #include "lvgl.h"
+#include "fast_image.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,9 +19,11 @@ static screen_model model;
 static lv_area_t probe;
 static uint16_t frame[SCREEN_WIDTH*SCREEN_HEIGHT],image[SCREEN_WIDTH*SCREEN_HEIGHT];
 static unsigned plotted;
+static unsigned flushed_pixels;
 static unsigned probe_color=0xb7dca5;
 static bool probing;
 static void flush(lv_disp_drv_t *d,const lv_area_t *a,lv_color_t *p) {
+ flushed_pixels+=lv_area_get_width(a)*lv_area_get_height(a);
  for(int y=a->y1;y<=a->y2;y++)for(int x=a->x1;x<=a->x2;x++)frame[y*480+x]=p[(y-a->y1)*lv_area_get_width(a)+x-a->x1].full;
  if(probing) {
   lv_color_t color=lv_color_hex(probe_color);
@@ -73,6 +78,149 @@ static void artifact(const char *name) {
  fprintf(f,"P6\n480 854\n255\n");for(unsigned i=0;i<480*854;i++) {
   lv_color_t c={.full=frame[i]};lv_color32_t v={.full=lv_color_to32(c)};fputc(v.ch.red,f);fputc(v.ch.green,f);fputc(v.ch.blue,f);
  }fclose(f);
+}
+static void media_and_battery(void) {
+ screen_init(&model);scene(SC_IMAGE,4,6);model.scene.item[0].hide_title=1;
+ model.charging=true;model.battery_valid=true;model.battery_percent=78;
+ stream_init(&stream);stream.width=320;stream.height=240;stream.revision++;
+ for(unsigned y=0;y<240;y++)for(unsigned x=0;x<320;x++)stream.pixels[y*320+x]=lv_color_hex((x<160)==(y<120)?0x89ad84:0x365f69).full;
+ stream.pixel_crc=media_crc32(stream.pixels,320*240*2);
+ assert(screen_ui(&model,120000,false));draw();
+ lv_obj_t *battery=NULL,*charging=NULL;
+ for(unsigned i=0;i<lv_obj_get_child_cnt(lv_scr_act());i++) {
+  lv_obj_t *o=lv_obj_get_child(lv_scr_act(),i);
+  if(lv_obj_get_x(o)==386&&lv_obj_get_y(o)==22&&lv_obj_get_width(o)==72)battery=o;
+ }
+ assert(battery&&lv_obj_get_child_cnt(battery)==2);charging=lv_obj_get_child(battery,1);
+ assert(lv_obj_get_style_bg_opa(charging,0)==LV_OPA_TRANSP);
+ assert(frame[28*480+417]==lv_color_hex(appearance_color(&model.appearance,AP_CHART_A)).full);
+ artifact("camera-contain-charging-after");
+ lv_obj_t *camera=NULL;
+ for(unsigned i=0;i<lv_obj_get_child_cnt(lv_scr_act());i++) {
+  lv_obj_t *o=lv_obj_get_child(lv_scr_act(),i);
+  if(lv_obj_get_y(o)==UI_GRID_TOP)camera=o;
+ }
+ assert(camera);lv_obj_t *clip=lv_obj_get_child(camera,0),*camera_image=lv_obj_get_child(clip,0);
+ assert(camera_image&&lv_obj_check_type(camera_image,&lv_img_class));
+  for(unsigned i=0;i<480*854;i++)image[i]=0x1234;
+  wallpaper.pixels=image;wallpaper.kind=1;wallpaper.ready=true;
+  model.appearance.wallpaper=1;model.appearance.dim=0;
+  assert(screen_ui(&model,120000,false));draw();
+  assert(frame[(UI_GRID_TOP+30)*480+30]==0x1234);
+  artifact("camera-transparent-wallpaper");
+  /* Find the rebuilt card after the appearance change. */
+  for(unsigned i=0;i<lv_obj_get_child_cnt(lv_scr_act());i++) {
+    lv_obj_t *o=lv_obj_get_child(lv_scr_act(),i);
+    if(lv_obj_get_y(o)==UI_GRID_TOP)camera=o;
+    if(lv_obj_get_x(o)==386&&lv_obj_get_y(o)==22&&lv_obj_get_width(o)==72)battery=o;
+  }
+  charging=lv_obj_get_child(battery,1);
+  clip=lv_obj_get_child(camera,0);camera_image=lv_obj_get_child(clip,0);
+  lv_area_t covered={240,480,249,489},letterbox={30,UI_GRID_TOP+30,39,UI_GRID_TOP+39};
+  lv_cover_check_info_t coverage={LV_COVER_RES_NOT_COVER,&covered};
+  lv_event_send(clip,LV_EVENT_COVER_CHECK,&coverage);assert(coverage.res==LV_COVER_RES_COVER);
+  coverage=(lv_cover_check_info_t){LV_COVER_RES_NOT_COVER,&letterbox};
+  lv_event_send(clip,LV_EVENT_COVER_CHECK,&coverage);assert(coverage.res==LV_COVER_RES_NOT_COVER);
+  lv_obj_set_style_img_opa(camera_image,128,0);
+  coverage=(lv_cover_check_info_t){LV_COVER_RES_NOT_COVER,&covered};
+  lv_event_send(clip,LV_EVENT_COVER_CHECK,&coverage);assert(coverage.res==LV_COVER_RES_NOT_COVER);
+  lv_obj_set_style_img_opa(camera_image,LV_OPA_COVER,0);
+  coverage=(lv_cover_check_info_t){LV_COVER_RES_MASKED,&covered};
+  lv_event_send(clip,LV_EVENT_COVER_CHECK,&coverage);assert(coverage.res==LV_COVER_RES_MASKED);
+ for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0x07e0;
+ stream.pixel_crc=media_crc32(stream.pixels,320*240*2);
+ stream.revision++;flushed_pixels=0;
+ assert(screen_ui(&model,120001,false));draw();
+ assert(lv_obj_get_child(camera,0)==clip&&lv_obj_get_child(clip,0)==camera_image);
+ assert(frame[480*480+240]==0x07e0&&flushed_pixels>100000&&flushed_pixels<220000);
+ /* Receiving the same RGB frame changes transport counters only. */
+ stream.frames++;stream.revision++;flushed_pixels=0;
+ assert(!screen_ui(&model,120001,false));draw();assert(flushed_pixels==0);
+ /* A changed resolution rebuilds the image and recomputes its fit. */
+ stream.width=480;stream.height=360;stream.revision++;
+ for(unsigned i=0;i<480*360;i++)stream.pixels[i]=0x001f;
+ stream.pixel_crc=media_crc32(stream.pixels,480*360*2);
+ assert(screen_ui(&model,120002,false));draw();
+ camera_image=lv_obj_get_child(lv_obj_get_child(camera,0),0);
+ assert(lv_obj_get_width(camera_image)==480&&lv_obj_get_height(camera_image)==360);
+ assert(frame[480*480+240]==0x001f);
+ /* Reproduce the old style with the same renderer for the comparison. */
+ lv_obj_set_style_bg_opa(charging,LV_OPA_COVER,0);draw();
+ assert(frame[28*480+417]==lv_color_hex(appearance_color(&model.appearance,AP_LINE)).full);artifact("charging-before");
+ lv_obj_set_style_bg_opa(charging,LV_OPA_TRANSP,0);draw();artifact("charging-after");
+ model.scene.item[0].image_fit=1;assert(screen_ui(&model,120000,false));draw();artifact("camera-cover");
+  wallpaper.ready=false;wallpaper.kind=0;model.appearance.wallpaper=0;
+ media_init(&media);media.queue[0]=(media_notice){.id=1,.confirm=1,.state=PUSH_QUEUED};
+ strcpy(media.queue[0].title,"External push");strcpy(media.queue[0].text,"Image and text");
+ media.active=1;media.width=32;media.height=17;for(unsigned i=0;i<32*17;i++)media.pixels[i]=0xf800;
+ assert(screen_ui(&model,120000,false));draw();assert(find(lv_scr_act(),"Image and text"));artifact("push-image-text");
+ for(unsigned i=1;i<6;i++){media.queue[i]=(media_notice){.id=i+1,.confirm=1,.state=PUSH_QUEUED};snprintf(media.queue[i].title,sizeof(media.queue[i].title),"Notification %u",i+1);strcpy(media.queue[i].text,"Queued notification");}
+ media.revision++;assert(screen_ui(&model,120000,false));draw();artifact("push-stack-six-zh");
+ screen_scene unchanged=model.scene;unsigned page=model.page;
+ assert(media_select(&media,3)==MEDIA_OK);assert(screen_ui(&model,120000,false));draw();assert(find(lv_scr_act(),"Notification 3"));artifact("push-stack-view-3-zh");
+ model.appearance.language=1;assert(screen_ui(&model,120000,false));draw();assert(find(lv_scr_act(),"Notifications  3/6"));artifact("push-stack-view-3-en");
+ assert(media_select(&media,0)==MEDIA_OK);assert(screen_ui(&model,120000,false));draw();assert(!find(lv_scr_act(),"Notification 3"));assert(!memcmp(&unchanged,&model.scene,sizeof(unchanged))&&model.page==page);artifact("push-stack-view-0");
+ assert(media_select(&media,1)==MEDIA_OK);model.appearance.language=0;
+ media.suspended=true;assert(screen_ui(&model,120000,false));draw();assert(!find(lv_scr_act(),"Image and text"));
+ media_init(&media);stream_init(&stream);
+ media.queue[0]=(media_notice){.id=900,.confirm=1,.state=PUSH_QUEUED};media.queue[0].source[0]=MEDIA_STREAM_CONFIG;
+ strcpy(media.queue[0].title,"URL notice");media.active=900;media.revision++;
+ assert(screen_ui(&model,120000,false));draw();artifact("push-url-loading");
+ media.source_ready=true;stream.width=320;stream.height=240;stream.frames=1;stream.revision++;
+ for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0xf800;
+ stream.pixel_crc=media_crc32(stream.pixels,320*240*2);
+ assert(screen_ui(&model,120001,false));draw();artifact("push-url-frame");
+ lv_obj_t *title=find(lv_scr_act(),"URL notice");assert(title);unsigned found_red=0;
+ for(unsigned i=0;i<480*854;i++)found_red+=frame[i]==0xf800;
+ assert(found_red>100000);
+ for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0x07e0;
+ stream.pixel_crc=media_crc32(stream.pixels,320*240*2);
+ stream.frames++;stream.revision++;flushed_pixels=0;
+ assert(screen_ui(&model,120002,false));draw();assert(find(lv_scr_act(),"URL notice")==title&&flushed_pixels<480*854);
+ unsigned found_green=0;for(unsigned i=0;i<480*854;i++)found_green+=frame[i]==0x07e0;assert(found_green==found_red);
+ assert(!memcmp(&unchanged,&model.scene,sizeof(unchanged))&&model.page==page);artifact("push-url-next-frame");
+ stream.frames++;stream.revision++;flushed_pixels=0;
+ assert(!screen_ui(&model,120002,false));draw();assert(flushed_pixels==0);
+ assert(find(lv_scr_act(),"URL notice")==title);
+ /* Receipt/presentation metadata and hidden content must cause no pixel work. */
+ media_present(&media);flushed_pixels=0;
+ assert(!screen_ui(&model,120003,false));draw();assert(flushed_pixels==0);
+ media.queue[1]=(media_notice){.id=901,.confirm=1,.state=PUSH_QUEUED};
+ strcpy(media.queue[1].title,"Hidden notice");strcpy(media.queue[1].text,"Original");
+ media.revision++;assert(screen_ui(&model,120004,false));draw();
+ lv_obj_t *overlay=lv_obj_get_parent(find(lv_scr_act(),"通知  1/2"));assert(overlay);
+ uint8_t patch[80]={MEDIA_PUSH_UPDATE};media_put32(patch+1,901);patch[16]=MEDIA_UPDATE_TEXT;
+ memcpy(patch+18,"Hidden updated",14);assert(media_command(&media,patch,32)==MEDIA_OK);
+ flushed_pixels=0;assert(!screen_ui(&model,120005,false));draw();assert(flushed_pixels==0);
+ printf("notification_hidden_update_pixels=%u\n",flushed_pixels);
+ media_put32(patch+1,900);patch[16]=MEDIA_UPDATE_TITLE;patch[15]=13;memcpy(patch+18,"Updated title",13);
+ assert(media_command(&media,patch,31)==MEDIA_OK);flushed_pixels=0;
+ assert(screen_ui(&model,120006,false));draw();
+ assert(find(lv_scr_act(),"Updated title")==title&&lv_obj_get_parent(find(lv_scr_act(),"通知  1/2"))==overlay);
+ assert(flushed_pixels>0&&flushed_pixels<80000);
+ printf("notification_title_update_pixels=%u\n",flushed_pixels);artifact("push-update-title");
+ patch[16]=MEDIA_UPDATE_TEXT;patch[15]=0;memcpy(patch+18,"First body",10);
+ assert(media_command(&media,patch,28)==MEDIA_OK);assert(screen_ui(&model,120007,false));draw();
+ memcpy(patch+18,"New body!!",10);assert(media_command(&media,patch,28)==MEDIA_OK);flushed_pixels=0;
+ assert(screen_ui(&model,120008,false));draw();assert(flushed_pixels>0&&flushed_pixels<150000);
+ assert(find(lv_scr_act(),"Updated title")==title);
+ printf("notification_body_update_pixels=%u\n",flushed_pixels);artifact("push-update-body");
+ memset(patch+9,0,9);patch[0]=MEDIA_PUSH_UPDATE;patch[16]=MEDIA_UPDATE_DURATION;media_put32(patch+9,15000);
+ assert(media_command(&media,patch,18)==MEDIA_OK);flushed_pixels=0;
+ assert(!screen_ui(&model,120009,false));draw();assert(flushed_pixels==0);
+ printf("notification_renew_pixels=%u\n",flushed_pixels);
+ /* Covered business values catch up on return without deleting their cards. */
+ media_init(&media);stream_init(&stream);scene(SC_VALUE,2,2);
+ screen_sample_set(&model,MET_CO2,641,true,120010);assert(screen_ui(&model,120010,false));draw();
+ lv_obj_t *value=find(lv_scr_act(),"641");assert(value);lv_obj_t *base_card=lv_obj_get_parent(value);
+ media.queue[0]=(media_notice){.id=902,.confirm=1,.state=PUSH_QUEUED};
+ strcpy(media.queue[0].title,"Covering notice");media.active=902;
+ assert(screen_ui(&model,120011,false));draw();screen_sample_set(&model,MET_CO2,888,true,120012);flushed_pixels=0;
+ assert(!screen_ui(&model,120012,false));draw();assert(flushed_pixels==0&&find(lv_scr_act(),"641")==value);
+ assert(media_select(&media,0)==MEDIA_OK);assert(screen_ui(&model,120013,false));draw();
+ assert(find(lv_scr_act(),"888")==value&&lv_obj_get_parent(value)==base_card);artifact("push-return-latest-data");
+
+ media_init(&media);stream_init(&stream);
 }
 static void rail(unsigned count,unsigned active) {
  unsigned found=0;
@@ -243,7 +391,7 @@ int main(void) {
  lv_init();static lv_disp_draw_buf_t buffer;static lv_disp_drv_t display;
  lv_disp_draw_buf_init(&buffer,pixels,NULL,SCREEN_WIDTH*16);
  lv_disp_drv_init(&display);display.hor_res=SCREEN_WIDTH;display.ver_res=SCREEN_HEIGHT;
- display.draw_buf=&buffer;display.flush_cb=flush;lv_disp_drv_register(&display);
+ display.draw_buf=&buffer;display.flush_cb=flush;display.draw_ctx_init=screen_draw_ctx_init;lv_disp_drv_register(&display);
  screen_init(&model);status_icons();screen_init(&model);model.battery_valid=true;model.battery_percent=78;
  compact_layout();screen_init(&model);model.battery_valid=true;model.battery_percent=78;
  scene(SC_VALUE,2,2);screen_sample_set(&model,MET_CO2,628,true,120000);
@@ -457,5 +605,6 @@ int main(void) {
  printf("PASS UI: 16px margins, 448x772 content, full-width translucent rail for 1-8 pages, disabled-page filtering, retained label/card identity, isolated minute chart, 144 KiB bounded glyph LRU, square/row growth, 4x1, seven 4x2 charts, singleton pixels, drizzle icon pixels in both weather sizes, freshness/clock/TTL invalidation, 4000 unchanged frames %.2f ms, 200 local updates %.2f ms, heap stable %u bytes free, peak %u / %u bytes\n",skipped_ms,redraw_ms,(unsigned)after.free_size,(unsigned)after.max_used,(unsigned)after.total_size);
  compact_widgets();puts("PASS compact widgets: 4x1 clock/weather, 4x2 weather, 2x1 readings; real label bounds, numeric fitting, missing/expired data, title hiding and both languages");
  ota_text();puts("PASS OTA dialog: line breaks have zero glyph width and no question-mark fallback");
+ media_and_battery();puts("PASS media rendering: contain/cover, push suspension, transparent charging background with before/after pixels");
  lv_deinit();return 0;
 }

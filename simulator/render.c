@@ -1,4 +1,5 @@
 #include "lvgl.h"
+#include "fast_image.h"
 #include "screen.h"
 #include "widget_fixtures.h"
 #include <stdio.h>
@@ -27,6 +28,7 @@ int main(int argc, char **argv) {
   d.ver_res = SCREEN_HEIGHT;
   d.draw_buf = &b;
   d.flush_cb = flush;
+  d.draw_ctx_init = screen_draw_ctx_init;
   lv_disp_drv_register(&d);
   screen_model m;
   screen_init(&m);

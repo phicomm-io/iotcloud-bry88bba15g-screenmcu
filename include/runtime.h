@@ -52,7 +52,8 @@ bool screen_runtime_backlight(screen_runtime *, unsigned requested,
 bool screen_runtime_module_report(screen_runtime *);
 bool screen_runtime_page_report(screen_runtime *,uint32_t request,unsigned status);
 bool screen_runtime_display_report(screen_runtime *, unsigned normal,
-                                   unsigned ceiling, unsigned applied);
+                                   unsigned ceiling, unsigned applied,
+                                   unsigned temporary_target);
 /* UTC base, display offset in minutes. RTC reads do not count as a new
  * network synchronization and must never schedule a write back to themselves. */
 bool screen_runtime_clock(screen_runtime *, uint32_t utc, int16_t offset,

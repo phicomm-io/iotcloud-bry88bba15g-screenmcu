@@ -21,9 +21,10 @@ reads bounded trace batches and exports the collected report locally.
   period. This is the controller's scan cadence, not an oscilloscope measurement
   of the physical VSYNC pin. PB2 is the reconstructed VSYNC route and PB5 DCLK;
   check the actual board before probing.
-- The synchronous `flush_cb` records its rectangle, starting microseconds,
-  copy duration, pixel count and last-flush marker. The original single
-  `lv_disp_flush_ready` call is preserved. No per-block UART logging is added.
+- The `flush_cb` records its rectangle, starting microseconds, completion
+  duration, pixel count and last-flush marker. One active 40-row draw buffer
+  serializes CPU drawing and DMA2D copies; completion releases it once.
+  No per-block UART logging is added. See [media rendering](MEDIA-PERFORMANCE.md).
 - `monitor_cb` records LVGL refresh milliseconds and pixels after each round.
   SysTick advances LVGL during drawing; incrementing its clock only from the
   foreground loop would make an uninterrupted draw appear to take zero time.
@@ -36,7 +37,9 @@ reads bounded trace batches and exports the collected report locally.
 
 刷新为同步拷贝时，flush 耗时包含实际拷贝。两次 flush 之间的间隔包含绘制和调度，
 不能直接当作 VSYNC 等待。多轮 monitor 需合计，并检查 `dropped` 后再分析区域。
-本版启用记录，没有切换帧缓冲、DMA2D、扫描时钟或 LCD 连续扫描策略。
+媒体版本使用单份活动条带缓冲和 DMA2D，双完整帧保留逐行脏区；下方早期测量保留当时的同步 CPU 拷贝条件。
+媒体版本的当前扫描与双帧交换实现见 [媒体绘制](MEDIA-PERFORMANCE.md)：约 30 Hz
+连续扫描，完整画面在帧开始时切换；下面的 40 Hz 数字保留早期固件的测量条件。
 
 ## Negotiated wire extension / 协商协议
 
@@ -57,7 +60,7 @@ The protocol snapshot checker also rejects duplicate extension opcode definition
 
 ## Driver comparison / 与原厂驱动对照
 
-当前为一份 480×854 RGB565 扫描缓冲，40 行 LVGL 绘制缓冲。每块直接拷到正在扫描
+2026-11-07 的社区驱动为一份 480×854 RGB565 扫描缓冲、40 行 LVGL 绘制缓冲。每块直接拷到正在扫描
 的缓冲，没有 VSYNC 等待；全屏通常需要 22 块。画面可能随绘制逐段出现。
 
 原厂 `SENSOR3_MCU SV.04.00.04.00` 的初始化函数 `0x3de84` 为 LVGL 配置两份完整
@@ -65,11 +68,12 @@ The protocol snapshot checker also rejects duplicate extension opcode definition
 写 LCD layer 0 地址 `0x4000204c`，设置 CR 的 VBPRELOAD（bit 15），等待该位自清，
 再通知 LVGL 完成。按手册，该位在帧开始装载影子寄存器。这是整帧交换路径。
 
-The current driver copies 40-row chunks into the active scan framebuffer and
+The 2026-11-07 community driver copied 40-row chunks into the active scan framebuffer and
 does not wait for VSYNC. The reviewed stock driver uses two full framebuffers,
 updates the LCD layer address, requests a frame-boundary shadow reload and waits
 for completion. Its unbounded busy loop should not be copied into recovery-aware
-community firmware.
+community firmware. The current media driver uses two full framebuffers with
+a bounded frame-start reload and preserves unchanged stale spans before presenting.
 
 ## Device measurements / 真机测量（2026-11-07）
 
