@@ -84,6 +84,7 @@ static void media_and_battery(void) {
  model.charging=true;model.battery_valid=true;model.battery_percent=78;
  stream_init(&stream);stream.width=320;stream.height=240;stream.revision++;
  for(unsigned y=0;y<240;y++)for(unsigned x=0;x<320;x++)stream.pixels[y*320+x]=lv_color_hex((x<160)==(y<120)?0x89ad84:0x365f69).full;
+ stream.pixel_crc=media_crc32(stream.pixels,320*240*2);
  assert(screen_ui(&model,120000,false));draw();
  lv_obj_t *battery=NULL,*charging=NULL;
  for(unsigned i=0;i<lv_obj_get_child_cnt(lv_scr_act());i++) {
@@ -127,13 +128,18 @@ static void media_and_battery(void) {
   coverage=(lv_cover_check_info_t){LV_COVER_RES_MASKED,&covered};
   lv_event_send(clip,LV_EVENT_COVER_CHECK,&coverage);assert(coverage.res==LV_COVER_RES_MASKED);
  for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0x07e0;
+ stream.pixel_crc=media_crc32(stream.pixels,320*240*2);
  stream.revision++;flushed_pixels=0;
  assert(screen_ui(&model,120001,false));draw();
  assert(lv_obj_get_child(camera,0)==clip&&lv_obj_get_child(clip,0)==camera_image);
  assert(frame[480*480+240]==0x07e0&&flushed_pixels>100000&&flushed_pixels<220000);
+ /* Receiving the same RGB frame changes transport counters only. */
+ stream.frames++;stream.revision++;flushed_pixels=0;
+ assert(!screen_ui(&model,120001,false));draw();assert(flushed_pixels==0);
  /* A changed resolution rebuilds the image and recomputes its fit. */
  stream.width=480;stream.height=360;stream.revision++;
  for(unsigned i=0;i<480*360;i++)stream.pixels[i]=0x001f;
+ stream.pixel_crc=media_crc32(stream.pixels,480*360*2);
  assert(screen_ui(&model,120002,false));draw();
  camera_image=lv_obj_get_child(lv_obj_get_child(camera,0),0);
  assert(lv_obj_get_width(camera_image)==480&&lv_obj_get_height(camera_image)==360);
@@ -162,15 +168,21 @@ static void media_and_battery(void) {
  assert(screen_ui(&model,120000,false));draw();artifact("push-url-loading");
  media.source_ready=true;stream.width=320;stream.height=240;stream.frames=1;stream.revision++;
  for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0xf800;
+ stream.pixel_crc=media_crc32(stream.pixels,320*240*2);
  assert(screen_ui(&model,120001,false));draw();artifact("push-url-frame");
  lv_obj_t *title=find(lv_scr_act(),"URL notice");assert(title);unsigned found_red=0;
  for(unsigned i=0;i<480*854;i++)found_red+=frame[i]==0xf800;
  assert(found_red>100000);
  for(unsigned i=0;i<320*240;i++)stream.pixels[i]=0x07e0;
+ stream.pixel_crc=media_crc32(stream.pixels,320*240*2);
  stream.frames++;stream.revision++;flushed_pixels=0;
  assert(screen_ui(&model,120002,false));draw();assert(find(lv_scr_act(),"URL notice")==title&&flushed_pixels<480*854);
  unsigned found_green=0;for(unsigned i=0;i<480*854;i++)found_green+=frame[i]==0x07e0;assert(found_green==found_red);
  assert(!memcmp(&unchanged,&model.scene,sizeof(unchanged))&&model.page==page);artifact("push-url-next-frame");
+ stream.frames++;stream.revision++;flushed_pixels=0;
+ assert(!screen_ui(&model,120002,false));draw();assert(flushed_pixels==0);
+ assert(find(lv_scr_act(),"URL notice")==title);
+
  media_init(&media);stream_init(&stream);
 }
 static void rail(unsigned count,unsigned active) {

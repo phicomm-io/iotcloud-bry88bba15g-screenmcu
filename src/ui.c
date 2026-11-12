@@ -629,7 +629,7 @@ static uint64_t content_hash(const screen_model *m,const scene_item *it,uint32_t
       hash=hash_bytes(hash,&m->weather.fields,sizeof(m->weather)-offsetof(screen_weather,fields));
     }
     else if(it->type==SC_REMINDERS)hash=hash_bytes(hash,m->reminders,sizeof(m->reminders));
-    else if(it->type==SC_IMAGE){const media_notice *notice=media_current(&media);if(!notice||!notice->source[0]){HASH(stream.revision);HASH(media.source_ready);HASH(stream.width);HASH(stream.height);}}
+    else if(it->type==SC_IMAGE){const media_notice *notice=media_current(&media);if(!notice||!notice->source[0]){HASH(stream.pixel_crc);HASH(media.source_ready);HASH(stream.width);HASH(stream.height);}}
     if((it->type==SC_LINE||it->type==SC_BAR||it->type==SC_PIE)&&it->binding!=SC_BIND_EXTERNAL) {
       uint32_t minute=now/60000;HASH(minute);HASH(m->head);HASH(m->count);
       unsigned bindings[]={it->binding,it->binding2,it->binding3};
@@ -675,14 +675,16 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   static struct {lv_obj_t *card;uint64_t content;} visible[8];
   static lv_obj_t *network,*battery_fill,*charging;
   static lv_obj_t *notice_image;
-  static uint32_t notice_frame;
+  /* Frame counters also advance for identical JPEGs. Redraw only when the
+   * displayed RGB checksum or geometry changes. */
+  static uint32_t notice_crc;
   static bool network_on,battery_valid,battery_charging;
   static unsigned battery_percent;
   lv_obj_t *root=lv_scr_act();
   if(m->asleep&&!m->ota)return false;
   uint64_t hash=structure_hash(m);
   bool rebuild=!have||hash!=previous||!lv_obj_get_child_cnt(root),changed=rebuild;
-  if(rebuild){previous=hash;have=true;lv_obj_clean(root);memset(visible,0,sizeof(visible));notice_image=NULL;notice_frame=stream.frames;}
+  if(rebuild){previous=hash;have=true;lv_obj_clean(root);memset(visible,0,sizeof(visible));notice_image=NULL;notice_crc=stream.pixel_crc;}
   appearance=&m->appearance;custom=NULL;
   BG=appearance_color(appearance,AP_CANVAS);CARD=appearance_color(appearance,AP_BACKGROUND);
   INK=appearance_color(appearance,AP_VALUE);MUTED=appearance_color(appearance,AP_UNIT);GRID=appearance_color(appearance,AP_LINE);
@@ -785,10 +787,10 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   }
   }
   const media_notice *active=media_current(&media);
-  if(!rebuild&&active&&active->source[0]&&!media.suspended&&notice_image&&notice_frame!=stream.frames){
+  if(!rebuild&&active&&active->source[0]&&!media.suspended&&notice_image&&notice_crc!=stream.pixel_crc){
     lv_img_cache_invalidate_src(&media_image_descriptor);
     lv_obj_invalidate(notice_image);
-    notice_frame=stream.frames;changed=true;
+    notice_crc=stream.pixel_crc;changed=true;
   }
   return changed;
 }
