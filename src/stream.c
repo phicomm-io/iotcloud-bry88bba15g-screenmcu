@@ -6,6 +6,7 @@
 #include <string.h>
 #include <strings.h>
 screen_stream stream;
+static bool decode_ready(screen_stream *s);
 static bool emit(screen_stream *s, unsigned op, const void *p, size_t n) {
   uint8_t wire[MEDIA_PACKET_MAX];
   if (n > sizeof(wire) - 5 || !s->send)
@@ -18,6 +19,12 @@ static bool emit(screen_stream *s, unsigned op, const void *p, size_t n) {
 }
 static bool want(void *ctx) {
   screen_stream *s = ctx;
+  if (s->state == STREAM_BACKOFF)
+    return false;
+  // A TCP/UART block can contain the end of one JPEG and the next header.
+  // Finish the complete image before the parser reuses its single JPEG arena.
+  if (s->ready && !decode_ready(s))
+    return false;
   uint32_t period = 1000u / s->fps;
   // TCP buffering and the shared UART add variable delivery latency. Keep
   // the deadline cadence while allowing a quarter-period of arrival jitter.
@@ -68,6 +75,42 @@ static void failure(screen_stream *s, unsigned error) {
   s->failures++;
   s->retry_at = s->now + delay;
   s->revision++;
+}
+static bool decode_ready(screen_stream *s) {
+  media_jpeg j;
+  if (!media_jpeg_parse(&j, s->jpeg, s->frame_bytes) ||
+      j.width > s->target_width || j.height > s->target_height) {
+    failure(s, 820);
+    return false;
+  }
+  unsigned stride = (j.width + 15u) & ~15u;
+  if (!s->decode || !s->decode(s->context, s->jpeg, s->frame_bytes, &j,
+                             s->pixels, stride)) {
+    failure(s, 821);
+    return false;
+  }
+  for (unsigned row = 1; row < j.height; row++)
+    memmove(s->pixels + row * j.width, s->pixels + row * stride,
+            j.width * 2u);
+  s->width = j.width;
+  s->height = j.height;
+  s->pixel_crc = media_crc32(s->pixels, j.width * j.height * 2u);
+  s->frames++;
+  s->period_frames++;
+  s->frame_at = s->now;
+  s->ready = false;
+  s->failures = 0;
+  s->error = 0;
+  s->revision++;
+  if (!s->period_start)
+    s->period_start = s->now;
+  if ((uint32_t)(s->now - s->period_start) >= 5000) {
+    s->actual_millifps =
+        s->period_frames * 1000000u / (s->now - s->period_start);
+    s->period_frames = 0;
+    s->period_start = s->now;
+  }
+  return true;
 }
 static bool expand(char *out, size_t cap, const char *in, unsigned w,
                    unsigned h, unsigned fps) {
@@ -417,41 +460,8 @@ void stream_poll(screen_stream *s, uint32_t now, bool visible,
     }
     return;
   }
-  if (s->ready) {
-    media_jpeg j;
-    if (!media_jpeg_parse(&j, s->jpeg, s->frame_bytes) ||
-        j.width > s->target_width || j.height > s->target_height) {
-      failure(s, 820);
-      return;
-    }
-    unsigned stride = (j.width + 15u) & ~15u;
-    if (!s->decode || !s->decode(s->context, s->jpeg, s->frame_bytes, &j,
-                                 s->pixels, stride)) {
-      failure(s, 821);
-      return;
-    }
-    for (unsigned row = 1; row < j.height; row++)
-      memmove(s->pixels + row * j.width, s->pixels + row * stride,
-              j.width * 2u);
-    s->width = j.width;
-    s->height = j.height;
-    s->pixel_crc = media_crc32(s->pixels, j.width * j.height * 2u);
-    s->frames++;
-    s->period_frames++;
-    s->frame_at = now;
-    s->ready = false;
-    s->failures = 0;
-    s->error = 0;
-    s->revision++;
-    if (!s->period_start)
-      s->period_start = now;
-    if ((uint32_t)(now - s->period_start) >= 5000) {
-      s->actual_millifps =
-          s->period_frames * 1000000u / (now - s->period_start);
-      s->period_frames = 0;
-      s->period_start = now;
-    }
-  }
+  if (s->ready && !decode_ready(s))
+    return;
   if (s->state == STREAM_READING && s->parser.error) {
     if (s->parser.status == 401 && s->username[0] && s->auth_attempt++ < 2 &&
         !strncasecmp(s->parser.challenge, "Digest ", 7)) {

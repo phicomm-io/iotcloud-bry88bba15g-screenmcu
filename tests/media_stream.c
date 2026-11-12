@@ -53,8 +53,8 @@ int main(void){
  // Frame pacing follows capture starts, independent of transfer/decode delay,
  // tolerates small source jitter, and never catches up a backlog in a burst.
  stream_init(&s);s.now=1000;assert(s.parser.want(s.parser.context));
- s.ready=true;s.now=1100;assert(!s.parser.want(s.parser.context));
- s.ready=false;s.now=1400;assert(!s.parser.want(s.parser.context));
+ s.now=1100;assert(!s.parser.want(s.parser.context));
+ s.now=1400;assert(!s.parser.want(s.parser.context));
  s.now=1985;assert(s.parser.want(s.parser.context));
  s.now=2010;assert(!s.parser.want(s.parser.context));
  s.now=3010;assert(s.parser.want(s.parser.context));
@@ -66,7 +66,26 @@ int main(void){
    static const int jitter[]={0,-150,120,-90,160,-110};
    s.now=1000+i*1000+jitter[i%6];
    assert(s.parser.want(s.parser.context));
-   s.ready=true;s.now+=100;assert(!s.parser.want(s.parser.context));
-   s.ready=false;
+   s.now+=100;assert(!s.parser.want(s.parser.context));
  }
+ // A buffered TCP block can finish one JPEG and start the next. Decode the
+ // complete image before its arena is reused; neither adjacent frame is lost.
+ stream_init(&s);s.send=send_wire;s.decode=decode;
+ strcpy((char *)cfg+7,"http://camera.test/mjpeg");cfg[6]=3;
+ assert(stream_config(&s,cfg,sizeof(cfg))==MEDIA_OK);
+ stream_poll(&s,1000,true,true);event(MEDIA_NET_CONNECTED,0,NULL,0);
+ size=snprintf((char *)response,sizeof(response),"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n");
+ for(unsigned i=0;i<2;i++) {
+  size+=snprintf((char *)response+size,sizeof(response)-size,"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %zu\r\n\r\n",jpeg_size);
+  memcpy(response+size,jpeg,jpeg_size);size+=jpeg_size;
+  memcpy(response+size,"\r\n",2);size+=2;
+ }
+ seq=0;
+ for(size_t at=0;at<size;) {
+  size_t n=size-at>512?512:size-at;s.now=at?2000:1000;
+  event(MEDIA_NET_WRITE,++seq,response+at,n);at+=n;
+ }
+ assert(s.frames==1&&s.ready&&!s.dropped&&!s.error);
+ stream_poll(&s,2001,true,true);
+ assert(s.frames==2&&!s.ready&&!s.dropped&&s.width==32&&s.height==17&&s.pixel_crc);
 }
