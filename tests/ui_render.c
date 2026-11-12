@@ -8,6 +8,7 @@
 #include "ui_language.h"
 #include <stdlib.h>
 #include "lvgl.h"
+#include "fast_image.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -300,7 +301,7 @@ int main(void) {
  lv_init();static lv_disp_draw_buf_t buffer;static lv_disp_drv_t display;
  lv_disp_draw_buf_init(&buffer,pixels,NULL,SCREEN_WIDTH*16);
  lv_disp_drv_init(&display);display.hor_res=SCREEN_WIDTH;display.ver_res=SCREEN_HEIGHT;
- display.draw_buf=&buffer;display.flush_cb=flush;lv_disp_drv_register(&display);
+ display.draw_buf=&buffer;display.flush_cb=flush;display.draw_ctx_init=screen_draw_ctx_init;lv_disp_drv_register(&display);
  screen_init(&model);status_icons();screen_init(&model);model.battery_valid=true;model.battery_percent=78;
  compact_layout();screen_init(&model);model.battery_valid=true;model.battery_percent=78;
  scene(SC_VALUE,2,2);screen_sample_set(&model,MET_CO2,628,true,120000);

@@ -30,6 +30,7 @@ uint32_t board_time_us(void);
 void board_lvgl_tick_start(void);
 void board_lvgl_tick_stop(void);
 void board_display_diag(uint8_t summary[128]);
+void board_display_acceleration(uint8_t summary[128]);
 void board_backlight(unsigned);
 unsigned board_backlight_percent(void);
 bool board_send(void *, const char *, size_t);

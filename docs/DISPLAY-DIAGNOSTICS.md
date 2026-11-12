@@ -21,9 +21,10 @@ reads bounded trace batches and exports the collected report locally.
   period. This is the controller's scan cadence, not an oscilloscope measurement
   of the physical VSYNC pin. PB2 is the reconstructed VSYNC route and PB5 DCLK;
   check the actual board before probing.
-- The synchronous `flush_cb` records its rectangle, starting microseconds,
-  copy duration, pixel count and last-flush marker. The original single
-  `lv_disp_flush_ready` call is preserved. No per-block UART logging is added.
+- The `flush_cb` records its rectangle, starting microseconds, completion
+  duration, pixel count and last-flush marker. Two 40-row draw buffers overlap
+  CPU drawing and DMA2D copies; completion releases each borrowed buffer once.
+  No per-block UART logging is added. See [media rendering](MEDIA-PERFORMANCE.md).
 - `monitor_cb` records LVGL refresh milliseconds and pixels after each round.
   SysTick advances LVGL during drawing; incrementing its clock only from the
   foreground loop would make an uninterrupted draw appear to take zero time.
@@ -36,7 +37,8 @@ reads bounded trace batches and exports the collected report locally.
 
 刷新为同步拷贝时，flush 耗时包含实际拷贝。两次 flush 之间的间隔包含绘制和调度，
 不能直接当作 VSYNC 等待。多轮 monitor 需合计，并检查 `dropped` 后再分析区域。
-本版启用记录，没有切换帧缓冲、DMA2D、扫描时钟或 LCD 连续扫描策略。
+媒体版本使用双条带缓冲和 DMA2D；下方早期测量保留当时的同步 CPU 拷贝条件。
+扫描时钟及 LCD 连续扫描策略保持原配置。
 
 ## Negotiated wire extension / 协商协议
 

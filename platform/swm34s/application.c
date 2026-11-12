@@ -14,6 +14,7 @@
 #include "display_diag.h"
 #include "media.h"
 #include "stream.h"
+#include "fast_image.h"
 #include <errno.h>
 #include <math.h>
 #include <stdlib.h>
@@ -134,11 +135,25 @@ static void rtc_tick(uint32_t now) {
 }
 static lv_color_t framebuffer[480 * 854]
     __attribute__((section(".framebuffer"), aligned(64)));
-static lv_color_t drawbuffer[480 * 40];
+static lv_color_t drawbuffer[2][480 * 40];
 static lv_disp_draw_buf_t draw;
 static lv_disp_drv_t display;
 static screen_display_diag display_diagnostics;
 static bool diag_redraw;
+static bool display_dma_ready, display_dma_fault;
+static uint32_t display_dma_flushes;
+static struct {
+  lv_disp_drv_t *driver;
+  lv_area_t area;
+  lv_color_t *pixels;
+  uint32_t started, started_ms;
+  bool last;
+} pending_flush;
+void board_display_acceleration(uint8_t p[128]) {
+  scene_put32(p + 120, 1u | (display_dma_ready ? 2u : 0u) | 4u |
+                            (display_dma_fault ? 8u : 0u));
+  scene_put32(p + 124, display_dma_flushes);
+}
 extern uint32_t __data_start__, __data_end__, __data_load__, __iram_start__,
     __iram_end__, __bss_start__, __bss_end__;
 extern char __heap_start__, __heap_end__;
@@ -330,18 +345,7 @@ void board_recovery(void) {
     board_idle();
   }
 }
-static void flush(lv_disp_drv_t *d, const lv_area_t *a, lv_color_t *p) {
-  uint32_t start=board_time_us();
-  for (int y = a->y1; y <= a->y2; y++) {
-    if (y >= 0 && y < 854 && a->x1 >= 0 && a->x2 < 480)
-      memcpy(framebuffer + y * 480 + a->x1, p,
-             (a->x2 - a->x1 + 1) * sizeof(*p));
-    p += a->x2 - a->x1 + 1;
-  }
-  screen_diag_flush(&display_diagnostics,a->x1,a->y1,a->x2,a->y2,
-                    start,board_time_us(),lv_disp_flush_is_last(d));
-  lv_disp_flush_ready(d); // Exactly the original completion, after the copy.
-}
+#include "display_dma.inc"
 static void display_monitor(lv_disp_drv_t *d,uint32_t ms,uint32_t pixels){
   (void)d;screen_diag_monitor(&display_diagnostics,ms,pixels,board_time_us());
 }
@@ -746,12 +750,15 @@ void screen_start(void) {
   stage(STAGE_LVGL);
   lv_init();
   board_lvgl_tick_start();
-  lv_disp_draw_buf_init(&draw, drawbuffer, NULL, 480 * 40);
+  display_dma_init();
+  lv_disp_draw_buf_init(&draw, drawbuffer[0], drawbuffer[1], 480 * 40);
   lv_disp_drv_init(&display);
   display.hor_res = 480;
   display.ver_res = 854;
   display.draw_buf = &draw;
   display.flush_cb = flush;
+  display.wait_cb = display_flush_wait;
+  display.draw_ctx_init = screen_draw_ctx_init;
   display.monitor_cb = display_monitor;
   lv_disp_drv_register(&display);
   startup_checkpoint();
@@ -902,6 +909,9 @@ void screen_start(void) {
     }
     screen_startup_ui(&runtime.model,board_ms);
     lv_timer_handler();
+    /* Complete the final strip before reporting presentation or starting the
+     * next foreground media decode. Earlier strips overlap LVGL drawing. */
+    while (!display_flush_poll()) board_watchdog_feed();
     if(media_current(&media)&&!runtime.model.asleep&&!runtime.model.ota&&board_backlight_percent())media_present(&media);
     control_check();
     stage(STAGE_NORMAL);

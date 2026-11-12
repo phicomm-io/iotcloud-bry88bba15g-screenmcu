@@ -31,11 +31,11 @@ set(DRIVERS)
 execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/prepare_jpeg_driver.py
  ${CSL}/SWM341_StdPeriph_Driver/SWM341_jpeg.c ${CMAKE_CURRENT_BINARY_DIR}/SWM341_jpeg.c
  COMMAND_ERROR_IS_FATAL ANY)
-foreach(name port gpio uart lcd pwm adc flash timr)
+foreach(name port gpio uart lcd pwm adc flash timr dma2d)
  list(APPEND DRIVERS ${CSL}/SWM341_StdPeriph_Driver/SWM341_${name}.c)
 endforeach()
 add_executable(screen_firmware startup.S board.c rtc_bus.c application.c jpeg_board.c ${CMAKE_CURRENT_BINARY_DIR}/SWM341_jpeg.c ${CMAKE_CURRENT_BINARY_DIR}/system_SWM341.c ${DRIVERS}
- ${CMAKE_SOURCE_DIR}/src/ui.c ${CMAKE_SOURCE_DIR}/src/startup_ui.c ${CMAKE_SOURCE_DIR}/src/responsive_font.c ${CMAKE_SOURCE_DIR}/src/fonts/metric_font.c ${CMAKE_SOURCE_DIR}/src/fonts/clock_font.c ${CMAKE_SOURCE_DIR}/src/fonts/zh16.c ${CMAKE_SOURCE_DIR}/src/fonts/zh32.c ${CMAKE_SOURCE_DIR}/src/fonts/clock72.c)
+ ${CMAKE_SOURCE_DIR}/src/ui.c ${CMAKE_SOURCE_DIR}/src/fast_image.c ${CMAKE_SOURCE_DIR}/src/startup_ui.c ${CMAKE_SOURCE_DIR}/src/responsive_font.c ${CMAKE_SOURCE_DIR}/src/fonts/metric_font.c ${CMAKE_SOURCE_DIR}/src/fonts/clock_font.c ${CMAKE_SOURCE_DIR}/src/fonts/zh16.c ${CMAKE_SOURCE_DIR}/src/fonts/zh32.c ${CMAKE_SOURCE_DIR}/src/fonts/clock72.c)
 target_include_directories(screen_firmware PRIVATE . ${CMAKE_BINARY_DIR} ${CSL}/CMSIS/CoreSupport ${CSL}/CMSIS/DeviceSupport ${CSL}/SWM341_StdPeriph_Driver)
 target_compile_definitions(screen_firmware PRIVATE SWM341)
 target_compile_definitions(screen_firmware PRIVATE SCREEN_BACKLIGHT_MAX_PERCENT=${SCREEN_BACKLIGHT_MAX_PERCENT})

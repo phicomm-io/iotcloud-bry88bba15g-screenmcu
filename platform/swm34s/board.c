@@ -399,6 +399,7 @@ __attribute__((noinline)) void board_display_diag(uint8_t p[128]){
   scene_put32(p+108,((v&LCD_CRV_VBP_Msk)>>LCD_CRV_VBP_Pos)+
       ((v&LCD_CRV_PIX_Msk)>>LCD_CRV_PIX_Pos)+((v&LCD_CRV_VFP_Msk)>>LCD_CRV_VFP_Pos)+3);
   scene_put32(p+112,1000000);scene_put32(p+116,1); // source: frame-end IRQ
+  board_display_acceleration(p);
 }
 void board_display(void) {
   for (unsigned i = 0; i < 20; i++)
