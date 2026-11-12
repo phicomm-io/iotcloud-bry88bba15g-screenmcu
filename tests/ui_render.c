@@ -182,6 +182,43 @@ static void media_and_battery(void) {
  stream.frames++;stream.revision++;flushed_pixels=0;
  assert(!screen_ui(&model,120002,false));draw();assert(flushed_pixels==0);
  assert(find(lv_scr_act(),"URL notice")==title);
+ /* Receipt/presentation metadata and hidden content must cause no pixel work. */
+ media_present(&media);flushed_pixels=0;
+ assert(!screen_ui(&model,120003,false));draw();assert(flushed_pixels==0);
+ media.queue[1]=(media_notice){.id=901,.confirm=1,.state=PUSH_QUEUED};
+ strcpy(media.queue[1].title,"Hidden notice");strcpy(media.queue[1].text,"Original");
+ media.revision++;assert(screen_ui(&model,120004,false));draw();
+ lv_obj_t *overlay=lv_obj_get_parent(find(lv_scr_act(),"通知  1/2"));assert(overlay);
+ uint8_t patch[80]={MEDIA_PUSH_UPDATE};media_put32(patch+1,901);patch[16]=MEDIA_UPDATE_TEXT;
+ memcpy(patch+18,"Hidden updated",14);assert(media_command(&media,patch,32)==MEDIA_OK);
+ flushed_pixels=0;assert(!screen_ui(&model,120005,false));draw();assert(flushed_pixels==0);
+ printf("notification_hidden_update_pixels=%u\n",flushed_pixels);
+ media_put32(patch+1,900);patch[16]=MEDIA_UPDATE_TITLE;patch[15]=13;memcpy(patch+18,"Updated title",13);
+ assert(media_command(&media,patch,31)==MEDIA_OK);flushed_pixels=0;
+ assert(screen_ui(&model,120006,false));draw();
+ assert(find(lv_scr_act(),"Updated title")==title&&lv_obj_get_parent(find(lv_scr_act(),"通知  1/2"))==overlay);
+ assert(flushed_pixels>0&&flushed_pixels<80000);
+ printf("notification_title_update_pixels=%u\n",flushed_pixels);artifact("push-update-title");
+ patch[16]=MEDIA_UPDATE_TEXT;patch[15]=0;memcpy(patch+18,"First body",10);
+ assert(media_command(&media,patch,28)==MEDIA_OK);assert(screen_ui(&model,120007,false));draw();
+ memcpy(patch+18,"New body!!",10);assert(media_command(&media,patch,28)==MEDIA_OK);flushed_pixels=0;
+ assert(screen_ui(&model,120008,false));draw();assert(flushed_pixels>0&&flushed_pixels<150000);
+ assert(find(lv_scr_act(),"Updated title")==title);
+ printf("notification_body_update_pixels=%u\n",flushed_pixels);artifact("push-update-body");
+ memset(patch+9,0,9);patch[0]=MEDIA_PUSH_UPDATE;patch[16]=MEDIA_UPDATE_DURATION;media_put32(patch+9,15000);
+ assert(media_command(&media,patch,18)==MEDIA_OK);flushed_pixels=0;
+ assert(!screen_ui(&model,120009,false));draw();assert(flushed_pixels==0);
+ printf("notification_renew_pixels=%u\n",flushed_pixels);
+ /* Covered business values catch up on return without deleting their cards. */
+ media_init(&media);stream_init(&stream);scene(SC_VALUE,2,2);
+ screen_sample_set(&model,MET_CO2,641,true,120010);assert(screen_ui(&model,120010,false));draw();
+ lv_obj_t *value=find(lv_scr_act(),"641");assert(value);lv_obj_t *base_card=lv_obj_get_parent(value);
+ media.queue[0]=(media_notice){.id=902,.confirm=1,.state=PUSH_QUEUED};
+ strcpy(media.queue[0].title,"Covering notice");media.active=902;
+ assert(screen_ui(&model,120011,false));draw();screen_sample_set(&model,MET_CO2,888,true,120012);flushed_pixels=0;
+ assert(!screen_ui(&model,120012,false));draw();assert(flushed_pixels==0&&find(lv_scr_act(),"641")==value);
+ assert(media_select(&media,0)==MEDIA_OK);assert(screen_ui(&model,120013,false));draw();
+ assert(find(lv_scr_act(),"888")==value&&lv_obj_get_parent(value)==base_card);artifact("push-return-latest-data");
 
  media_init(&media);stream_init(&stream);
 }

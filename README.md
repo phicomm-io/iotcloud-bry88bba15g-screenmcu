@@ -60,3 +60,17 @@ after the notification releases the network/JPEG/RGB arena. Notification frames
 invalidate only their image rectangle; they do not rebuild the page or stack.
 Capability bit 25 gates URL push, and status version 3 adds source ownership and
 remaining duration. Queue depth stays 16 and uploaded image cache stays 4.
+
+通知 `id` 由外部调用端指定。新增 `screen.push.update` 可局部修改文字、图片、
+HTTP(S) 图片或 MJPEG 图源、显示方式和亮屏选项，并延长剩余时长；隐藏通知
+保持原队列位置，结束后的 ID 不会重播。通知层独立复用 LVGL 对象，标题/正文
+更新只绘制相应区域，续时和隐藏内容更新不产生像素刷新；遮挡的业务页返回时
+更新至最新数据。详见 [媒体 API](https://phicomm-io.github.io/iotcloud-community-protocols/daikin-g3-media/)。
+
+External clients assign stable notification IDs. `screen.push.update` patches supplied
+fields, including text, uploaded images, HTTP(S) images/MJPEG, dismissal and wake
+options. Duration patches extend remaining visible time. Updates preserve queue
+position and view selection; completed IDs never replay. The independent LVGL
+notification layer retains objects, redraws changed title/body regions only, and
+performs no pixel work for duration or hidden-content updates. Covered business
+content catches up when the normal page returns.

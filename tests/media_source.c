@@ -31,6 +31,12 @@ int main(void){FILE *f=fopen(MEDIA_FIXTURE,"rb");assert(f);jpeg_size=fread(jpeg,
  // Pausing a notice preserves its countdown, and a changed permanent source
  // is applied only after the notice releases the single network owner.
  setup();assert(push(1,"http://camera.test/mjpeg",1000)==MEDIA_OK);media_tick(&m,1,false,false);poll(1,false,true);frame(100,true);assert(media_select(&m,0)==MEDIA_OK);poll(101,true,true);media_tick(&m,5000,false,false);assert(m.queue[0].remaining==1000);assert(media_select(&m,1)==MEDIA_OK);poll(5001,false,true);frame(5002,true);strcpy((char *)cfg+7,"http://camera.test/newpage");assert(media_source_config(&owner,&s,cfg,sizeof(cfg))==MEDIA_OK&&!strcmp(s.path,"/mjpeg"));assert(media_touch(&m));poll(5003,true,true);assert(!strcmp(s.path,"/newpage"));
+ // Explicit ID text/time patches leave the active connection and frame intact.
+ setup();assert(push(7,"http://camera.test/updates",1000)==MEDIA_OK);media_tick(&m,1,false,false);poll(1,false,true);frame(10,true);
+ connection=s.connection;before=opens;memset(packet,0,sizeof(packet));packet[0]=MEDIA_PUSH_UPDATE;
+ media_put32(packet+1,7);packet[16]=MEDIA_UPDATE_TEXT|MEDIA_UPDATE_DURATION;media_put32(packet+9,4000);
+ memcpy(packet+18,"Updated live text",17);assert(media_command(&m,packet,35)==MEDIA_OK);poll(20,false,true);
+ assert(s.connection==connection&&opens==before&&m.presented&&m.source_ready&&m.queue[0].remaining==4000);
  // Preserve the original text limits even with the longest URL/auth fields.
  setup();assert(push(99,"http://camera.test/image",1000)==MEDIA_OK);packet[15]=64;memset(packet+535,'t',64);memset(packet+599,'x',512);media_put32(packet+1,100);assert(media_command(&m,packet,1111)==MEDIA_OK&&m.last_push_id==99&&strlen(m.queue[0].text)==512);packet[599]=0xff;assert(media_command(&m,packet,1111)==MEDIA_RANGE);uint8_t status[MEDIA_STATUS_BYTES];assert(media_status(&m,status,sizeof(status))==sizeof(status)&&status[31]==3&&media_u32(status+32)==99&&status[MEDIA_STATUS_QUEUE+9]);
 }

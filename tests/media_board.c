@@ -57,5 +57,14 @@ int main(void) {
   assert(media_count(&media)==1&&media.last_push_id==90);media.queue[0].remaining=200;
   media_board_packet(NULL,MEDIA_COMMAND,guard.session,10,push,sizeof(push));assert(media.queue[0].remaining==200);
   media_board_packet(NULL,MEDIA_COMMAND,guard.session,11,push,sizeof(push));assert(media.queue[0].remaining==1000);
+  uint8_t update[18]={MEDIA_PUSH_UPDATE};media_put32(update+1,90);
+  update[16]=MEDIA_UPDATE_DURATION;media_put32(update+9,4000);
+  media_board_packet(NULL,MEDIA_COMMAND,guard.session,12,update,sizeof(update));
+  assert(media.queue[0].remaining==4000);media.queue[0].remaining=3000;
+  media_board_packet(NULL,MEDIA_COMMAND,guard.session,12,update,sizeof(update));
+  assert(media.queue[0].remaining==3000); /* Lost reply retries do not renew twice. */
+  media_board_packet(NULL,MEDIA_COMMAND,guard.session,13,update,sizeof(update));
+  assert(media.queue[0].remaining==4000);
+
 
 }

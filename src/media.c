@@ -70,6 +70,114 @@ static void finish(screen_media *m, media_notice *q, unsigned state) {
   memset(q, 0, sizeof(*q));
   m->revision++;
 }
+/* Decode only when selecting or replacing an uploaded image. The foreground
+ * owner serializes this buffer with LVGL; LCD scanout uses separate frames. */
+static bool decode_image(screen_media *m, uint32_t id) {
+  media_image *im = image(m, id);
+  media_jpeg j;
+  if (!im || !media_jpeg_parse(&j, im->bytes, im->size) || !m->decode ||
+      !m->decode(m->context, im->bytes, im->size, &j, m->pixels,
+                 (j.width + 15u) & ~15u)) {
+    m->decode_errors++;
+    return false;
+  }
+  unsigned stride = (j.width + 15u) & ~15u;
+  for (unsigned row = 1; row < j.height; row++)
+    memmove(m->pixels + row * j.width, m->pixels + row * stride, j.width * 2u);
+  m->width = j.width;
+  m->height = j.height;
+  m->decoded++;
+  m->pixel_crc = media_crc32(m->pixels, j.width * j.height * 2u);
+  return true;
+}
+static unsigned update_notice(screen_media *m, const uint8_t *p, size_t n) {
+  if (n < 18 || n > MEDIA_PACKET_MAX) return MEDIA_RANGE;
+  unsigned mask = p[16] | (unsigned)p[17] << 8;
+  unsigned body = 18 + ((mask & MEDIA_UPDATE_SOURCE) ? MEDIA_STREAM_CONFIG_BYTES : 0);
+  unsigned title = p[15];
+  if (!mask || (mask & ~MEDIA_UPDATE_ALL) || body + title > n || title > 64 ||
+      n - body - title > 512 || (!(mask & MEDIA_UPDATE_TITLE) && title) ||
+      (!(mask & MEDIA_UPDATE_TEXT) && n != body + title) || p[13] > 3 ||
+      ((mask & MEDIA_UPDATE_IMAGE) && (mask & MEDIA_UPDATE_URL))) return MEDIA_RANGE;
+  media_notice *q = NULL;
+  for (unsigned i = 0; i < MEDIA_QUEUE; i++)
+    if (m->queue[i].id == media_u32(p + 1)) q = &m->queue[i];
+  if (!q) return MEDIA_NOT_FOUND;
+  /* Validate the complete result before publishing any metadata. Creation's
+   * fingerprint is retained so a late send retry never creates a second item. */
+  media_notice next = *q;
+  if (mask & MEDIA_UPDATE_TITLE) {
+    memset(next.title, 0, sizeof(next.title));memcpy(next.title, p + body, title);
+  }
+  if (mask & MEDIA_UPDATE_TEXT) {
+    memset(next.text, 0, sizeof(next.text));memcpy(next.text, p + body + title, n - body - title);
+  }
+  if (!scene_utf8(next.title, sizeof(next.title)) ||
+      !scene_text_utf8(next.text, sizeof(next.text))) return MEDIA_RANGE;
+  if (mask & MEDIA_UPDATE_MODE) next.confirm = (p[13] >> 1) & 1;
+  if (mask & MEDIA_UPDATE_WAKE) next.wake = p[13] & 1;
+  if (mask & MEDIA_UPDATE_BRIGHTNESS) {
+    if (!p[14] || p[14] > 100) return MEDIA_RANGE;
+    next.brightness = p[14];
+  }
+  if (mask & MEDIA_UPDATE_DURATION) {
+    uint32_t duration = media_u32(p + 9);
+    if (!duration || duration > 3600000) return MEDIA_RANGE;
+    if (duration > next.remaining) next.remaining = duration;
+  }
+  if (!next.confirm && !next.remaining) return MEDIA_RANGE;
+  if (mask & MEDIA_UPDATE_IMAGE) {
+    next.image = media_u32(p + 5);
+    media_image *im = image(m, next.image);
+    if (next.image && (!im || im->state != 2)) return MEDIA_NOT_FOUND;
+    memset(next.source, 0, sizeof(next.source));
+  }
+  if (mask & MEDIA_UPDATE_SOURCE) {
+    const uint8_t *source = p + 18;
+    if ((mask & MEDIA_UPDATE_URL) && !source[7]) {
+      if (mask & (MEDIA_UPDATE_SOURCE & ~MEDIA_UPDATE_URL)) return MEDIA_RANGE;
+      memset(next.source, 0, sizeof(next.source));next.image = 0;
+    } else {
+      if (!next.source[0]) {
+        if (!(mask & MEDIA_UPDATE_URL)) return MEDIA_RANGE;
+        next.source[0] = MEDIA_STREAM_CONFIG;
+        next.source[1] = 64;next.source[2] = 1;next.source[3] = 240;
+        next.source[5] = 1;next.source[6] = 3;
+      }
+      if (mask & MEDIA_UPDATE_URL) {
+        if (!memchr(source + 7, 0, 384)) return MEDIA_RANGE;
+        if (strcmp((const char *)next.source + 7, (const char *)source + 7))
+          memset(next.source + 391, 0, 128); /* Do not forward old credentials. */
+        memcpy(next.source + 7, source + 7, 384);next.image = 0;
+      }
+      if (mask & MEDIA_UPDATE_USERNAME) memcpy(next.source + 391, source + 391, 64);
+      if (mask & MEDIA_UPDATE_PASSWORD) memcpy(next.source + 455, source + 455, 64);
+      if (mask & MEDIA_UPDATE_WIDTH) memcpy(next.source + 1, source + 1, 2);
+      if (mask & MEDIA_UPDATE_HEIGHT) memcpy(next.source + 3, source + 3, 2);
+      if (mask & MEDIA_UPDATE_FPS) next.source[5] = source[5];
+      if (mask & MEDIA_UPDATE_TLS) next.source[6] = (next.source[6] & ~2u) | (source[6] & 2u);
+      if (!next.source[7] || !stream_config_valid(next.source, sizeof(next.source))) return MEDIA_RANGE;
+    }
+  }
+  if (!next.image && !next.source[0] && !next.title[0] && !next.text[0]) return MEDIA_RANGE;
+  bool active = m->active == q->id;
+  bool image_changed = next.image != q->image;
+  bool source_changed = memcmp(next.source, q->source, sizeof(next.source)) != 0;
+  if (active && image_changed && next.image && !decode_image(m, next.image)) {
+    /* A hardware error may have partially written the RGB buffer. Restore the
+     * original JPEG before any renderer can access it again. */
+    if (q->image && !decode_image(m, q->image)) finish(m, q, PUSH_FAILED);
+    return MEDIA_DECODE;
+  }
+  if (active && (image_changed || source_changed)) {
+    m->presented = false;m->source_ready = false;m->source_error = 0;
+    if (!next.image) m->width = m->height = 0;
+    next.state = PUSH_QUEUED;
+  }
+  if (memcmp(q, &next, sizeof(next))) { *q = next;m->revision++; }
+  m->last_push_id = q->id;
+  return MEDIA_OK;
+}
 unsigned media_select(screen_media *m, unsigned index) {
   if (m->suspended)
     return MEDIA_BUSY;
@@ -91,25 +199,10 @@ unsigned media_select(screen_media *m, unsigned index) {
   m->presented = false;
   m->source_ready = false;
   m->source_error = 0;
-  media_image *im = image(m, q->image);
   m->width = m->height = 0;
-  if (q->image) {
-    media_jpeg j;
-    if (!im || !media_jpeg_parse(&j, im->bytes, im->size) || !m->decode ||
-        !m->decode(m->context, im->bytes, im->size, &j, m->pixels,
-                   (j.width + 15u) & ~15u)) {
-      m->decode_errors++;
-      finish(m, q, PUSH_FAILED);
-      return MEDIA_DECODE;
-    }
-    unsigned stride = (j.width + 15u) & ~15u;
-    for (unsigned row = 1; row < j.height; row++)
-      memmove(m->pixels + row * j.width, m->pixels + row * stride,
-              j.width * 2u);
-    m->width = j.width;
-    m->height = j.height;
-    m->decoded++;
-    m->pixel_crc = media_crc32(m->pixels, j.width * j.height * 2u);
+  if (q->image && !decode_image(m, q->image)) {
+    finish(m, q, PUSH_FAILED);
+    return MEDIA_DECODE;
   }
   m->active = q->id;
   m->parked = false;
@@ -196,6 +289,8 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
   uint32_t id = media_u32(p + 1);
   media_image *im = image(m, id);
   switch (p[0]) {
+  case MEDIA_PUSH_UPDATE:
+    return update_notice(m, p, n);
   case MEDIA_BEGIN: {
     if (n != 17)
       return MEDIA_RANGE;

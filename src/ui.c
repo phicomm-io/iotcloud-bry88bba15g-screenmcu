@@ -607,9 +607,6 @@ static uint64_t structure_hash(const screen_model *m) {
   HASH(screen_font_resources.state);HASH(screen_font_resources.crc);
   HASH(m->appearance);HASH(wallpaper.kind);HASH(wallpaper.ready);HASH(wallpaper.crc);
   HASH(m->page);HASH(m->scene);HASH(m->ota);
-  HASH(media.active);HASH(media.suspended);HASH(media.revision);
-  const media_notice *notice=media_current(&media);
-  if(notice&&notice->source[0]){HASH(media.source_ready);HASH(stream.width);HASH(stream.height);}
 #undef HASH
   return hash;
 }
@@ -669,22 +666,92 @@ static void draw_charging(lv_event_t *e) {
   lv_point_t points[]={{a.x1+11,a.y1+2},{a.x1+5,a.y1+11},{a.x1+12,a.y1+9},{a.x1+6,a.y1+18}};
   for(unsigned i=1;i<4;i++)lv_draw_line(lv_event_get_draw_ctx(e),&line,&points[i-1],&points[i]);
 }
+/* This layer is independent of the business page. Stable LVGL objects let
+ * text, queue metadata and live pixels invalidate only their own rectangles. */
+static bool notification_ui(lv_obj_t *root,const screen_model *m,bool reset) {
+  static struct {
+    lv_obj_t *overlay,*heading,*back[2],*card,*title,*text,*loading,*image,*dots[5];
+    unsigned count,view,width,height,image_height;
+    uint32_t crc;
+    bool remote;
+  } n;
+  if(reset)memset(&n,0,sizeof(n));
+  const media_notice *notice=media_current(&media);
+  if(!notice||media.suspended||m->ota) {
+    if(!n.overlay)return false;
+    lv_obj_del(n.overlay);memset(&n,0,sizeof(n));return true;
+  }
+  bool created=!n.overlay,changed=created;
+  if(created) {
+    n.overlay=box(root,0,0,480,854,BG,0);
+    n.heading=label(n.overlay,24,24,432,44,"",&zh32,INK);
+    n.back[0]=box(n.overlay,40,80,400,660,lv_color_to32(lv_color_mix(lv_color_hex(CARD),lv_color_hex(BG),110))&0xffffff,28);
+    n.back[1]=box(n.overlay,28,96,424,660,lv_color_to32(lv_color_mix(lv_color_hex(CARD),lv_color_hex(BG),180))&0xffffff,28);
+    n.card=box(n.overlay,16,112,448,662,CARD,28);
+    n.title=label(n.card,20,20,408,80,"",&zh32,INK);
+    n.text=label(n.card,20,112,408,526,"",screen_ui_font(28,false),INK);
+    n.loading=label(n.card,20,108,408,44,english?"Loading image…":"正在加载画面…",&zh32,MUTED);
+    label(n.overlay,24,786,432,25,english?"Tap to dismiss · Double-tap to switch":"单击确认 · 双击切换",screen_ui_font(20,false),MUTED);
+    for(unsigned i=0;i<5;i++)n.dots[i]=box(n.overlay,0,830,12,12,GRID,6);
+  }
+  unsigned count=media_count(&media),view=media_view(&media),limit=count<MEDIA_STACK?count:MEDIA_STACK;
+  if(created||n.count!=count||n.view!=view) {
+    char heading[64];snprintf(heading,sizeof(heading),english?"Notifications  %u/%u":"通知  %u/%u",view,count);
+    lv_label_set_text(n.heading,heading);
+    for(unsigned i=0;i<2;i++) {
+      bool show=count>(i?1u:2u);
+      if(show)lv_obj_clear_flag(n.back[i],LV_OBJ_FLAG_HIDDEN);
+      else lv_obj_add_flag(n.back[i],LV_OBJ_FLAG_HIDDEN);
+    }
+    int left=(480-(int)(limit+1)*28)/2;
+    for(unsigned i=0;i<5;i++) {
+      if(i<=limit)lv_obj_clear_flag(n.dots[i],LV_OBJ_FLAG_HIDDEN);
+      else lv_obj_add_flag(n.dots[i],LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_x(n.dots[i],left+(int)i*28+8);
+      lv_obj_set_style_bg_color(n.dots[i],lv_color_hex(i==view?INK:GRID),0);
+    }
+    n.count=count;n.view=view;changed=true;
+  }
+  const char *title=screen_translate(english,notice->title),*text=screen_translate(english,notice->text);
+  if(strcmp(lv_label_get_text(n.title),title)) {lv_label_set_text(n.title,title);changed=true;}
+  bool remote=notice->source[0]!=0;
+  unsigned width=remote?(media.source_ready?stream.width:0):media.width;
+  unsigned height=remote?(media.source_ready?stream.height:0):media.height;
+  unsigned image_height=text[0]?280:520;
+  bool layout=created||width!=n.width||height!=n.height||remote!=n.remote||image_height!=n.image_height;
+  if(layout) {
+    if(n.image) {lv_obj_del(lv_obj_get_parent(n.image));n.image=NULL;}
+    if(width&&height)n.image=picture(n.card,&media_image_descriptor,remote?stream.pixels:media.pixels,width,height,12,108,424,image_height,false);
+    if(remote&&(!width||!height))lv_obj_clear_flag(n.loading,LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(n.loading,LV_OBJ_FLAG_HIDDEN);
+    n.width=width;n.height=height;n.remote=remote;n.image_height=image_height;changed=true;
+  }
+  int text_top=(width&&height)?108+(int)image_height+12:remote?168:112;
+  if(layout||strcmp(lv_label_get_text(n.text),text)) {
+    int available=638-text_top;unsigned size=28;lv_point_t bounds;
+    while(size>16) {lv_txt_get_size(&bounds,text,screen_ui_font(size,false),0,0,408,LV_TEXT_FLAG_NONE);if(bounds.y<=available)break;size-=2;}
+    lv_label_set_text(n.text,text);lv_obj_set_y(n.text,text_top);lv_obj_set_height(n.text,available);
+    lv_obj_set_style_text_font(n.text,screen_ui_font(size,false),0);changed=true;
+  }
+  uint32_t crc=remote?stream.pixel_crc:media.pixel_crc;
+  if(n.image&&(layout||n.crc!=crc)) {
+    lv_img_cache_invalidate_src(&media_image_descriptor);lv_obj_invalidate(n.image);changed=true;
+  }
+  n.crc=crc;
+  return changed;
+}
 bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   english=m->appearance.language==1;
   (void)demo;static uint64_t previous;static bool have;
   static struct {lv_obj_t *card;uint64_t content;} visible[8];
   static lv_obj_t *network,*battery_fill,*charging;
-  static lv_obj_t *notice_image;
-  /* Frame counters also advance for identical JPEGs. Redraw only when the
-   * displayed RGB checksum or geometry changes. */
-  static uint32_t notice_crc;
   static bool network_on,battery_valid,battery_charging;
   static unsigned battery_percent;
   lv_obj_t *root=lv_scr_act();
   if(m->asleep&&!m->ota)return false;
   uint64_t hash=structure_hash(m);
   bool rebuild=!have||hash!=previous||!lv_obj_get_child_cnt(root),changed=rebuild;
-  if(rebuild){previous=hash;have=true;lv_obj_clean(root);memset(visible,0,sizeof(visible));notice_image=NULL;notice_crc=stream.pixel_crc;}
+  if(rebuild){previous=hash;have=true;lv_obj_clean(root);memset(visible,0,sizeof(visible));}
   appearance=&m->appearance;custom=NULL;
   BG=appearance_color(appearance,AP_CANVAS);CARD=appearance_color(appearance,AP_BACKGROUND);
   INK=appearance_color(appearance,AP_VALUE);MUTED=appearance_color(appearance,AP_UNIT);GRID=appearance_color(appearance,AP_LINE);
@@ -714,6 +781,11 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
   lv_obj_add_event_cb(charging,draw_charging,LV_EVENT_DRAW_MAIN,NULL);
   box(root,SCREEN_WIDTH-UI_MARGIN-5,UI_MARGIN+13,5,13,GRID,1);
   }
+  const media_notice *notice=media_current(&media);
+  bool covered=notice&&!media.suspended&&!m->ota;
+  /* The opaque notification owns the visible surface. Keep business objects
+   * intact and catch their data up once when the overlay is removed. */
+  if(!covered||rebuild) {
   if(rebuild||network_on!=m->network) {
     network_on=m->network;lv_obj_invalidate(network);changed=true;
   }
@@ -739,9 +811,11 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
     }
     slot++;
   }
+  }
   reuse_labels=NULL;
   if(rebuild) {
   unsigned total=0;for(unsigned i=0;i<m->scene.pages;i++)total+=m->scene.page[i].enabled;
+  unsigned page=m->page<m->scene.pages?m->page:0;
   unsigned j=0;for(unsigned i=0;i<m->scene.pages;i++)if(m->scene.page[i].enabled) {
     /* Integer boundaries cover every edge pixel, even with seven pages. The
      * rail overlays the top edge and reserves no row beneath the widgets. */
@@ -752,45 +826,7 @@ bool screen_ui(const screen_model *m,uint32_t now,bool demo) {
     lv_obj_set_style_bg_opa(segment,(active?UI_PAGE_RAIL_ACTIVE_OPACITY:UI_PAGE_RAIL_IDLE_OPACITY)*255/100,0);
   }
   if(m->ota){lv_obj_t *o=box(root,32,300,416,160,CARD,20);label(o,16,24,384,110,"正在更新\n请保持供电",&zh32,colors[0]);}
-  const media_notice *notice=media_current(&media);
-  if(notice&&!media.suspended&&!m->ota){
-    lv_obj_t *overlay=box(root,0,0,480,854,BG,0);
-    unsigned count=media_count(&media),view=media_view(&media),limit=count<MEDIA_STACK?count:MEDIA_STACK;
-    char heading[64];snprintf(heading,sizeof(heading),english?"Notifications  %u/%u":"通知  %u/%u",view,count);
-    label(overlay,24,24,432,44,heading,&zh32,INK);
-    /* Precompose decorative layers against the solid canvas once. Keeping
-     * them opaque avoids per-pixel blending of the full overlapping cards. */
-    if(count>2)box(overlay,40,80,400,660,lv_color_to32(lv_color_mix(lv_color_hex(CARD),lv_color_hex(BG),110))&0xffffff,28);
-    if(count>1)box(overlay,28,96,424,660,lv_color_to32(lv_color_mix(lv_color_hex(CARD),lv_color_hex(BG),180))&0xffffff,28);
-    lv_obj_t *card=box(overlay,16,112,448,662,CARD,28);
-    label(card,20,20,408,80,notice->title,&zh32,INK);
-    int text_top=112;
-    unsigned image_width=notice->source[0]?(media.source_ready?stream.width:0):media.width;
-    unsigned image_height_pixels=notice->source[0]?(media.source_ready?stream.height:0):media.height;
-    const uint16_t *image_pixels=notice->source[0]?stream.pixels:media.pixels;
-    if(image_width&&image_height_pixels){
-      int image_height=notice->text[0]?280:520;
-      notice_image=picture(card,&media_image_descriptor,image_pixels,image_width,image_height_pixels,12,108,424,image_height,false);
-      text_top=108+image_height+12;
-    } else if(notice->source[0]) {
-      label(card,20,108,408,44,english?"Loading image…":"正在加载画面…",&zh32,MUTED);
-      text_top=168;
-    }
-    if(notice->text[0]){
-      int height=638-text_top;unsigned size=28;lv_point_t bounds;
-      while(size>16){lv_txt_get_size(&bounds,notice->text,screen_ui_font(size,false),0,0,408,LV_TEXT_FLAG_NONE);if(bounds.y<=height)break;size-=2;}
-      label(card,20,text_top,408,height,notice->text,screen_ui_font(size,false),INK);
-    }
-    label(overlay,24,786,432,25,english?"Tap to dismiss · Double-tap to switch":"单击确认 · 双击切换",screen_ui_font(20,false),MUTED);
-    int left=(480-(int)(limit+1)*28)/2;
-    for(unsigned i=0;i<=limit;i++)box(overlay,left+(int)i*28+8,830,12,12,i==view?INK:GRID,6);
   }
-  }
-  const media_notice *active=media_current(&media);
-  if(!rebuild&&active&&active->source[0]&&!media.suspended&&notice_image&&notice_crc!=stream.pixel_crc){
-    lv_img_cache_invalidate_src(&media_image_descriptor);
-    lv_obj_invalidate(notice_image);
-    notice_crc=stream.pixel_crc;changed=true;
-  }
+  changed=notification_ui(root,m,rebuild)||changed;
   return changed;
 }
