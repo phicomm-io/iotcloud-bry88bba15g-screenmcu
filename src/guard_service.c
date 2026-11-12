@@ -79,6 +79,10 @@ bool guard_receive(screen_guard *g, const char *line, size_t size, bool ota) {
             g->exported += count;
         }
         break;
+      case GUARD_RESTART:
+        install = g->restart != NULL;
+        if (!install) reply[2] = GUARD_UNSUPPORTED;
+        break;
       case GUARD_RESET:
         reset = g->reset != NULL;
         if (!reset)

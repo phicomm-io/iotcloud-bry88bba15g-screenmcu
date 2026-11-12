@@ -799,7 +799,8 @@ void screen_start(void) {
     bool stream_visible=false;
     for(unsigned i=0;i<runtime.model.scene.count;i++)
       if(runtime.model.scene.item[i].page==runtime.model.page&&runtime.model.scene.item[i].type==SC_IMAGE)stream_visible=true;
-    stream_poll(&stream,now,stream_visible&&!power.asleep&&!media_current(&media)&&!media_busy,media_link_state.ready);
+    media_board_socket_poll();
+    stream_poll(&stream,now,stream_visible&&board_backlight_percent()&&!power.asleep&&!media_current(&media)&&!media_busy,media_link_state.ready);
     control_check();
     if (!maintenance.state) {
       font_bank_poll(&font_bank);

@@ -232,9 +232,10 @@ void media_tick(screen_media *m, uint32_t now, bool asleep, bool suspended) {
   uint32_t elapsed = m->last_tick ? now - m->last_tick : 0;
   m->now = now;
   m->last_tick = now;
+  bool was_suspended = m->suspended;
   m->suspended = suspended;
   media_notice *q = (media_notice *)media_current(m);
-  if (q && m->presented && !suspended && !q->confirm) {
+  if (q && m->presented && !suspended && !was_suspended && !q->confirm) {
     if (elapsed >= q->remaining)
       finish(m, q, PUSH_TIMEDOUT);
     else

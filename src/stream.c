@@ -81,7 +81,7 @@ static bool expand(char *out, size_t cap, const char *in, unsigned w,
       used += count;
       in += take;
     } else {
-      if ((unsigned char)*in <= 32 || (unsigned char)*in == 127 ||
+      if ((unsigned char)*in <= 32 || (unsigned char)*in == 127 || *in == '#' ||
           used + 1 >= cap)
         return false;
       out[used++] = *in++;
@@ -90,10 +90,15 @@ static bool expand(char *out, size_t cap, const char *in, unsigned w,
   out[used] = 0;
   return true;
 }
-static bool url(screen_stream *s) {
+typedef struct {
+  bool tls;
+  unsigned port;
+  char host[128], path[512];
+} stream_url;
+static bool parse_url(stream_url *s, const char *source, unsigned w, unsigned h,
+                      unsigned fps) {
   char expanded[512];
-  if (!expand(expanded, sizeof(expanded), s->url, s->target_width,
-              s->target_height, s->fps))
+  if (!expand(expanded, sizeof(expanded), source, w, h, fps))
     return false;
   const char *p = expanded;
   if (!strncmp(p, "http://", 7)) {
@@ -147,10 +152,8 @@ unsigned stream_config(screen_stream *s, const uint8_t *p, size_t n) {
   if (!w || w > MEDIA_WIDTH_MAX || !h || h > MEDIA_HEIGHT_MAX || !fps ||
       fps > 10)
     return MEDIA_RANGE;
-  /* Validate in a small candidate, without copying the SDRAM image arenas. */
-  char expanded[512];
-  if (!expand(expanded, sizeof(expanded), (const char *)p + 7, w, h, fps) ||
-      (strncmp(expanded, "http://", 7) && strncmp(expanded, "https://", 8)))
+  stream_url candidate = {0};
+  if (!parse_url(&candidate, (const char *)p + 7, w, h, fps))
     return MEDIA_RANGE;
   for (unsigned i = 391; i < 519; i++)
     if (p[i] && (p[i] < 32 || p[i] == 127))
@@ -164,11 +167,10 @@ unsigned stream_config(screen_stream *s, const uint8_t *p, size_t n) {
   s->fps = fps;
   s->enabled = p[6] & 1;
   s->verify_tls = p[6] & 2;
-  if (!url(s)) {
-    s->enabled = false;
-    s->error = MEDIA_RANGE;
-    return MEDIA_RANGE;
-  }
+  s->tls = candidate.tls;
+  s->port = candidate.port;
+  memcpy(s->host, candidate.host, sizeof(s->host));
+  memcpy(s->path, candidate.path, sizeof(s->path));
   s->state = s->enabled ? STREAM_PAUSED : STREAM_OFF;
   s->failures = s->auth_attempt = 0;
   s->digest = false;
@@ -280,7 +282,10 @@ static bool authorization(screen_stream *s, char *out, size_t cap) {
       char *end = p;
       while (*end && *end != ',')
         end++;
-      if (end - p == 4 && !strncasecmp(p, "auth", 4))
+      char *trim = end;
+      while (trim > p && trim[-1] == ' ')
+        trim--;
+      if (trim - p == 4 && !strncasecmp(p, "auth", 4))
         auth = true;
       p = *end ? end + 1 : end;
     }
@@ -360,6 +365,10 @@ void stream_socket(screen_stream *s, uint32_t sequence, const uint8_t *p,
     }
     s->state = STREAM_READING;
     s->at = s->now;
+    return;
+  }
+  if (p[0] == MEDIA_NET_CLOSED && s->ready) {
+    s->parser.ended = true;
     return;
   }
   if (p[0] == MEDIA_NET_CLOSED || p[0] == MEDIA_NET_ERROR) {
@@ -457,10 +466,6 @@ void stream_poll(screen_stream *s, uint32_t now, bool visible,
   }
   if (s->state == STREAM_PAUSED ||
       (s->state == STREAM_BACKOFF && (int32_t)(now - s->retry_at) >= 0)) {
-    if (!url(s)) {
-      failure(s, MEDIA_RANGE);
-      return;
-    }
     s->connection++;
     if (!s->connection)
       s->connection = 1;

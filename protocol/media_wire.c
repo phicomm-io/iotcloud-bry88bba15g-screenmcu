@@ -35,6 +35,11 @@ bool media_feed(media_parser *s, unsigned c, uint32_t now) {
       s->at = now;
       return true;
     }
+    /* Repeated delimiters also recover after a lost closing delimiter. */
+    if (!s->used && !s->discard && !s->escape) {
+      s->at = now;
+      return true;
+    }
     s->active = false;
     if (s->discard || s->escape || s->used < 18) {
       s->framing_errors++;

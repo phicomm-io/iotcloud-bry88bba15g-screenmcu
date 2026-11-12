@@ -3,6 +3,8 @@
 #include "responsive_font.h"
 #include "wallpaper.h"
 #include "resources.h"
+#include "media.h"
+#include "stream.h"
 #include "ui_language.h"
 #include <stdlib.h>
 #include "lvgl.h"
@@ -73,6 +75,33 @@ static void artifact(const char *name) {
  fprintf(f,"P6\n480 854\n255\n");for(unsigned i=0;i<480*854;i++) {
   lv_color_t c={.full=frame[i]};lv_color32_t v={.full=lv_color_to32(c)};fputc(v.ch.red,f);fputc(v.ch.green,f);fputc(v.ch.blue,f);
  }fclose(f);
+}
+static void media_and_battery(void) {
+ screen_init(&model);scene(SC_IMAGE,4,6);model.scene.item[0].hide_title=1;
+ model.charging=true;model.battery_valid=true;model.battery_percent=78;
+ stream_init(&stream);stream.width=320;stream.height=240;stream.revision++;
+ for(unsigned y=0;y<240;y++)for(unsigned x=0;x<320;x++)stream.pixels[y*320+x]=lv_color_hex((x<160)==(y<120)?0x89ad84:0x365f69).full;
+ assert(screen_ui(&model,120000,false));draw();
+ lv_obj_t *battery=NULL,*charging=NULL;
+ for(unsigned i=0;i<lv_obj_get_child_cnt(lv_scr_act());i++) {
+  lv_obj_t *o=lv_obj_get_child(lv_scr_act(),i);
+  if(lv_obj_get_x(o)==386&&lv_obj_get_y(o)==22&&lv_obj_get_width(o)==72)battery=o;
+ }
+ assert(battery&&lv_obj_get_child_cnt(battery)==2);charging=lv_obj_get_child(battery,1);
+ assert(lv_obj_get_style_bg_opa(charging,0)==LV_OPA_TRANSP);
+ assert(frame[28*480+417]==lv_color_hex(appearance_color(&model.appearance,AP_CHART_A)).full);
+ artifact("camera-contain-charging-after");
+ /* Reproduce the old style with the same renderer for the comparison. */
+ lv_obj_set_style_bg_opa(charging,LV_OPA_COVER,0);draw();
+ assert(frame[28*480+417]==lv_color_hex(appearance_color(&model.appearance,AP_LINE)).full);artifact("charging-before");
+ lv_obj_set_style_bg_opa(charging,LV_OPA_TRANSP,0);draw();artifact("charging-after");
+ model.scene.item[0].image_fit=1;assert(screen_ui(&model,120000,false));draw();artifact("camera-cover");
+ media_init(&media);media.queue[0]=(media_notice){.id=1,.confirm=1,.state=PUSH_QUEUED};
+ strcpy(media.queue[0].title,"External push");strcpy(media.queue[0].text,"Image and text");
+ media.active=1;media.width=32;media.height=17;for(unsigned i=0;i<32*17;i++)media.pixels[i]=0xf800;
+ assert(screen_ui(&model,120000,false));draw();assert(find(lv_scr_act(),"Image and text"));artifact("push-image-text");
+ media.suspended=true;assert(screen_ui(&model,120000,false));draw();assert(!find(lv_scr_act(),"Image and text"));
+ media_init(&media);stream_init(&stream);
 }
 static void rail(unsigned count,unsigned active) {
  unsigned found=0;
@@ -457,5 +486,6 @@ int main(void) {
  printf("PASS UI: 16px margins, 448x772 content, full-width translucent rail for 1-8 pages, disabled-page filtering, retained label/card identity, isolated minute chart, 144 KiB bounded glyph LRU, square/row growth, 4x1, seven 4x2 charts, singleton pixels, drizzle icon pixels in both weather sizes, freshness/clock/TTL invalidation, 4000 unchanged frames %.2f ms, 200 local updates %.2f ms, heap stable %u bytes free, peak %u / %u bytes\n",skipped_ms,redraw_ms,(unsigned)after.free_size,(unsigned)after.max_used,(unsigned)after.total_size);
  compact_widgets();puts("PASS compact widgets: 4x1 clock/weather, 4x2 weather, 2x1 readings; real label bounds, numeric fitting, missing/expired data, title hiding and both languages");
  ota_text();puts("PASS OTA dialog: line breaks have zero glyph width and no question-mark fallback");
+ media_and_battery();puts("PASS media rendering: contain/cover, push suspension, transparent charging background with before/after pixels");
  lv_deinit();return 0;
 }

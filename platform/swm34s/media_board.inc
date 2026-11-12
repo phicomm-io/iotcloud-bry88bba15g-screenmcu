@@ -15,17 +15,30 @@ static bool media_board_send(unsigned channel, uint32_t sequence, const void *p,
   return size && board_send(NULL, (const char *)wire, size);
 }
 static size_t media_board_status(uint8_t *p, size_t cap) {
-  if (!normal_ready || cap < 188)
+  if (!normal_ready || cap < 172)
     return 0;
   size_t n = media_status(&media, p, cap);
   n += stream_status(&stream, p + n, cap - n);
   return n;
 }
+/* Only one socket operation may be in flight in either direction. */
+static struct {
+  uint8_t bytes[MEDIA_PACKET_MAX];
+  size_t size;
+  uint32_t sequence, sent;
+  unsigned attempts;
+} media_socket_tx;
 static bool media_board_socket(void *ctx, const uint8_t *p, size_t n) {
   (void)ctx;
-  return media_link_state.ready && !maintenance.state &&
-         media_board_send(MEDIA_SOCKET_EVENT,
-                          ++media_link_state.socket_sequence, p, n);
+  if (!media_link_state.ready || maintenance.state || n > sizeof(media_socket_tx.bytes) ||
+      (media_socket_tx.size && p[0] != MEDIA_NET_CLOSE))
+    return false;
+  memcpy(media_socket_tx.bytes, p, n);
+  media_socket_tx.size = n;
+  media_socket_tx.sequence = ++media_link_state.socket_sequence;
+  media_socket_tx.attempts = 0;
+  media_socket_tx.sent = 0;
+  return true;
 }
 static void media_board_packet(void *ctx, unsigned channel, uint32_t session,
                                uint32_t sequence, const uint8_t *p, size_t n) {
@@ -42,6 +55,7 @@ static void media_board_packet(void *ctx, unsigned channel, uint32_t session,
         media_link_state.command = 0;
         media_link_state.socket_sequence = 0;
         if (normal_ready) {
+          media_socket_tx.size = 0;
           stream.state = stream.enabled ? STREAM_PAUSED : STREAM_OFF;
           stream.request_size = 0;
           stream.ready = false;
@@ -59,7 +73,7 @@ static void media_board_packet(void *ctx, unsigned channel, uint32_t session,
       return;
     }
     if (p[0] == MEDIA_BAUD && n == 5 && !normal_ready && !maintenance.state &&
-        !guard.forced && !media_link_state.phase &&
+        !media_link_state.phase &&
         media_rate_valid(media_u32(p + 1))) {
       media_link_state.pending = media_u32(p + 1);
       media_link_state.phase = 1;
@@ -114,6 +128,10 @@ static void media_board_packet(void *ctx, unsigned channel, uint32_t session,
     uint8_t reply[MEDIA_PACKET_MAX] = {p[0], result};
     size_t bytes = 2 + media_board_status(reply + 2, sizeof(reply) - 2);
     media_board_send(MEDIA_REPLY, sequence, reply, bytes);
+  } else if (channel == MEDIA_SOCKET_ACK) {
+    if (n == 5 && sequence == media_socket_tx.sequence && media_socket_tx.size >= 5 &&
+        !memcmp(p, media_socket_tx.bytes, 5))
+      media_socket_tx.size = 0;
   } else if (channel == MEDIA_SOCKET || channel == MEDIA_SOCKET_EVENT) {
     stream_socket(&stream, sequence, p, n);
     if (channel == MEDIA_SOCKET)
@@ -147,4 +165,24 @@ static void media_board_link_poll(void) {
   if (media_link_state.ready &&
       (uint32_t)(now - media_link_state.last_ping) > 10000)
     media_link_state.ready = false;
+}
+
+static void media_board_socket_poll(void) {
+  if (!normal_ready) return;
+  if (!media_link_state.ready || maintenance.state) { media_socket_tx.size = 0; return; }
+  if (media_socket_tx.size && (!media_socket_tx.sent ||
+      (uint32_t)(board_ms - media_socket_tx.sent) > 1500)) {
+    if (media_socket_tx.attempts >= 3) {
+      uint8_t error[5] = {MEDIA_NET_ERROR};
+      memcpy(error + 1, media_socket_tx.bytes + 1, 4);
+      media_socket_tx.size = 0;
+      stream_socket(&stream, 0, error, sizeof(error));
+      return;
+    }
+    if (media_board_send(MEDIA_SOCKET_EVENT, media_socket_tx.sequence,
+                         media_socket_tx.bytes, media_socket_tx.size)) {
+      media_socket_tx.sent = board_ms;
+      media_socket_tx.attempts++;
+    }
+  }
 }

@@ -26,4 +26,4 @@ SECTIONS {
 ASSERT(__image_end__ <= 0x7b000, "application overlaps reserved flash")
 ASSERT(__iram_end__ <= __retained_start__, "internal SRAM overlaps retained recovery state")
 ASSERT(__retained_end__ <= __StackTop-0x4000, "retained state overlaps 16KB stack")
-ASSERT(__heap_end__ <= ORIGIN(SDRAM)+LENGTH(SDRAM), "SDRAM overflow")
+ASSERT(__heap_end__ + 0x100000 <= ORIGIN(SDRAM)+LENGTH(SDRAM), "media requires 1 MiB SDRAM headroom")

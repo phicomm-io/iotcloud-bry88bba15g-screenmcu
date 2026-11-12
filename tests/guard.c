@@ -53,6 +53,11 @@ static size_t request(screen_guard *g, uint32_t seq, unsigned op,
   return size - 11;
 }
 int main(void) {
+  screen_guard restart_guard={.send=send_wire,.restart=restart};
+  guard_init(&restart_guard,456,0,false);restart_guard.normal=true;
+  request(&restart_guard,1,GUARD_RESTART,0,0,true,GUARD_BUSY,NULL);assert(!restarts);
+  request(&restart_guard,2,GUARD_RESTART,0,0,false,GUARD_OK,NULL);assert(restarts==1);restarts=0;
+
   /* An explicit startup command selects a bus for this boot and holds startup.
    * Invalid, replayed, busy or normal-operation requests cannot change it. */
   screen_guard diagnostic = {.send=send_wire, .nor_mode=select_nor};

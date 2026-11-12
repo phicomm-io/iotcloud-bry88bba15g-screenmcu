@@ -1,5 +1,4 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-#include "SWM341_jpeg.h"
 #include "board.h"
 #include "jpeg_image.h"
 #include <string.h>
