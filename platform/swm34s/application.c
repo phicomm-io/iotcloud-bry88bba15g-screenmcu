@@ -854,13 +854,17 @@ void screen_start(void) {
                   ++runtime.tx_sequence, report, io?sizeof(report):16);
         if (n) board_send(&factory, line, n);
       }
+      const media_notice *display_notice=media_current(&media);
+      unsigned temporary_target=display_notice&&!media.suspended&&!power.ota ?
+                                    display_notice->brightness : 0;
       if (runtime.display.configured)
         screen_runtime_display_report(&runtime, power.brightness,
              runtime.display.policy.ceiling < SCREEN_BACKLIGHT_MAX_PERCENT ?
                  runtime.display.policy.ceiling : SCREEN_BACKLIGHT_MAX_PERCENT,
-             board_backlight_percent());
+             board_backlight_percent(), temporary_target);
       else
-        screen_runtime_backlight(&runtime, power.brightness,
+        screen_runtime_backlight(&runtime, power.brightness < temporary_target ?
+             temporary_target : power.brightness,
              SCREEN_BACKLIGHT_MAX_PERCENT,
              board_backlight_percent(), power.asleep);
     }

@@ -264,17 +264,20 @@ bool screen_runtime_backlight(screen_runtime *s, unsigned requested,
   return true;
 }
 bool screen_runtime_display_report(screen_runtime *s, unsigned normal,
-                                   unsigned ceiling, unsigned applied) {
+                                   unsigned ceiling, unsigned applied,
+                                   unsigned temporary_target) {
   unsigned target = s && s->model.ota ? SCREEN_OTA_BRIGHTNESS :
                     s ? s->display.target : 0;
+  bool override = s && !s->model.ota && temporary_target;
+  if (override && target < temporary_target) target = temporary_target;
   if (!s || !s->display.configured || !s->caps.ready || !s->send ||
       !(s->caps.capabilities & SCREEN_CAP_DISPLAY) ||
       s->tx_sequence == UINT32_MAX || normal > 100 || ceiling > 100 ||
-      applied > ceiling || applied > target || s->model.page >= 8)
+      applied > ceiling || applied > target || temporary_target > 100 || s->model.page >= 8)
     return false;
   uint8_t payload[13] = {SCREEN_MSG_BACKLIGHT, 2, normal, ceiling, applied,
-                         s->model.ota ? false : s->display.sleeping, target,
-                         s->model.ota ? 0 : s->display.reason, s->model.page};
+                         (s->model.ota || override) ? false : s->display.sleeping, target,
+                         (s->model.ota || override) ? 0 : s->display.reason, s->model.page};
   scene_put32(payload + 9, s->display.policy.revision);
   char wire[128];
   size_t n = screen_link_encode(wire, sizeof(wire), s->caps.session,
