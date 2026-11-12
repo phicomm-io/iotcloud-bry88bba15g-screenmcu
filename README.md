@@ -74,3 +74,7 @@ position and view selection; completed IDs never replay. The independent LVGL
 notification layer retains objects, redraws changed title/body regions only, and
 performs no pixel work for duration or hidden-content updates. Covered business
 content catches up when the normal page returns.
+
+通知支持独立的 `ttl_ms`（接收后过期，0 关闭，上限一天），排队、隐藏、等待确认和维护暂停时继续计时；`duration_ms` 仍仅计算实际显示时长。`overflow` 可选择默认 `reject`、`drop_newest`、`drop_oldest`，后者淘汰最早等待消息并保护当前显示项。状态区分 `expired`、`dropped`、`evicted`。局部更新可重设或关闭过期时间。能力位 27 和状态版本 4 表示过期与队列策略支持。
+
+Notifications accept an independent `ttl_ms` from receipt (0 disables; maximum one day), including time queued, hidden, awaiting confirmation or suspended for maintenance. `duration_ms` still counts visible presentation only. Per-message `overflow` chooses `reject` (default), `drop_newest`, or `drop_oldest` (oldest waiting item, preserving the current notice). Terminal states distinguish `expired`, `dropped`, and `evicted`. A partial update can reset or disable expiry. Capability bit 27 and status version 4 identify this support.

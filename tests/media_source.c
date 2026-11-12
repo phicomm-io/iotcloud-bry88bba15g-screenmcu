@@ -38,5 +38,5 @@ int main(void){FILE *f=fopen(MEDIA_FIXTURE,"rb");assert(f);jpeg_size=fread(jpeg,
  memcpy(packet+18,"Updated live text",17);assert(media_command(&m,packet,35)==MEDIA_OK);poll(20,false,true);
  assert(s.connection==connection&&opens==before&&m.presented&&m.source_ready&&m.queue[0].remaining==4000);
  // Preserve the original text limits even with the longest URL/auth fields.
- setup();assert(push(99,"http://camera.test/image",1000)==MEDIA_OK);packet[15]=64;memset(packet+535,'t',64);memset(packet+599,'x',512);media_put32(packet+1,100);assert(media_command(&m,packet,1111)==MEDIA_OK&&m.last_push_id==99&&strlen(m.queue[0].text)==512);packet[599]=0xff;assert(media_command(&m,packet,1111)==MEDIA_RANGE);uint8_t status[MEDIA_STATUS_BYTES];assert(media_status(&m,status,sizeof(status))==sizeof(status)&&status[31]==3&&media_u32(status+32)==99&&status[MEDIA_STATUS_QUEUE+9]);
+ setup();assert(push(99,"http://camera.test/image",1000)==MEDIA_OK);packet[15]=64;memset(packet+535,'t',64);memset(packet+599,'x',512);media_put32(packet+1,100);assert(media_command(&m,packet,1111)==MEDIA_OK&&m.last_push_id==99&&strlen(m.queue[0].text)==512);packet[599]=0xff;assert(media_command(&m,packet,1111)==MEDIA_RANGE);uint8_t status[MEDIA_STATUS_BYTES];assert(media_status(&m,status,sizeof(status))==sizeof(status)&&status[31]==4&&media_u32(status+32)==99&&status[MEDIA_STATUS_QUEUE+9]);
 }

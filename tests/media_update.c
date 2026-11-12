@@ -57,7 +57,7 @@ int main(void) {
   assert(media_command(&m,cmd,n)==MEDIA_OK&&m.parked&&!m.active);
   /* Rejected patches are atomic, including sources and unknown fields. */
   n=patch(1,0,"","");unchanged(MEDIA_RANGE,n);
-  n=patch(1,1u<<14,"","");unchanged(MEDIA_RANGE,n);
+  n=patch(1,1u<<15,"","");unchanged(MEDIA_RANGE,n);
   n=patch(1,MEDIA_UPDATE_DURATION|MEDIA_UPDATE_TEXT,"","Rejected");media_put32(cmd+9,3600001);unchanged(MEDIA_RANGE,n);
   n=patch(1,MEDIA_UPDATE_TITLE|MEDIA_UPDATE_TEXT,"","");unchanged(MEDIA_RANGE,n);
   n=patch(1,MEDIA_UPDATE_IMAGE,"","");media_put32(cmd+5,999);unchanged(MEDIA_NOT_FOUND,n);

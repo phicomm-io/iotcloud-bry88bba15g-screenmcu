@@ -8,7 +8,7 @@ typedef struct {
   uint8_t bytes[MEDIA_JPEG_MAX] __attribute__((aligned(4)));
 } media_image;
 typedef struct {
-  uint32_t id, image, signature, remaining;
+  uint32_t id, image, signature, remaining, ttl_remaining;
   uint8_t state, wake, brightness, confirm;
   char title[65], text[513];
   uint8_t source[MEDIA_STREAM_CONFIG_BYTES];

@@ -51,6 +51,9 @@ static void remember(screen_media *m, const media_notice *q) {
   for (unsigned i = 0; i < MEDIA_HISTORY; i++)
     if (m->history[i].id == q->id) {
       m->history[i].state = q->state;
+      /* Keep the newest terminal event readable when an eviction is followed
+       * immediately by accepting its replacement into a full history ring. */
+      if (q->state >= PUSH_CONFIRMED) m->history_next = i + 1;
       return;
     }
   unsigned i = m->history_next++ % MEDIA_HISTORY;
@@ -93,7 +96,8 @@ static bool decode_image(screen_media *m, uint32_t id) {
 static unsigned update_notice(screen_media *m, const uint8_t *p, size_t n) {
   if (n < 18 || n > MEDIA_PACKET_MAX) return MEDIA_RANGE;
   unsigned mask = p[16] | (unsigned)p[17] << 8;
-  unsigned body = 18 + ((mask & MEDIA_UPDATE_SOURCE) ? MEDIA_STREAM_CONFIG_BYTES : 0);
+  unsigned source_at = 18 + ((mask & MEDIA_UPDATE_TTL) ? 4 : 0);
+  unsigned body = source_at + ((mask & MEDIA_UPDATE_SOURCE) ? MEDIA_STREAM_CONFIG_BYTES : 0);
   unsigned title = p[15];
   if (!mask || (mask & ~MEDIA_UPDATE_ALL) || body + title > n || title > 64 ||
       n - body - title > 512 || (!(mask & MEDIA_UPDATE_TITLE) && title) ||
@@ -125,6 +129,10 @@ static unsigned update_notice(screen_media *m, const uint8_t *p, size_t n) {
     if (!duration || duration > 3600000) return MEDIA_RANGE;
     if (duration > next.remaining) next.remaining = duration;
   }
+  if (mask & MEDIA_UPDATE_TTL) {
+    if (media_u32(p + 18) > MEDIA_TTL_MAX_MS) return MEDIA_RANGE;
+    next.ttl_remaining = media_u32(p + 18);
+  }
   if (!next.confirm && !next.remaining) return MEDIA_RANGE;
   if (mask & MEDIA_UPDATE_IMAGE) {
     next.image = media_u32(p + 5);
@@ -133,7 +141,7 @@ static unsigned update_notice(screen_media *m, const uint8_t *p, size_t n) {
     memset(next.source, 0, sizeof(next.source));
   }
   if (mask & MEDIA_UPDATE_SOURCE) {
-    const uint8_t *source = p + 18;
+    const uint8_t *source = p + source_at;
     if ((mask & MEDIA_UPDATE_URL) && !source[7]) {
       if (mask & (MEDIA_UPDATE_SOURCE & ~MEDIA_UPDATE_URL)) return MEDIA_RANGE;
       memset(next.source, 0, sizeof(next.source));next.image = 0;
@@ -374,9 +382,16 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
     m->revision++;
     return MEDIA_OK;
   case MEDIA_PUSH:
-  case MEDIA_PUSH_URL: {
-    bool remote = p[0] == MEDIA_PUSH_URL;
-    unsigned body = 16 + (remote ? MEDIA_STREAM_CONFIG_BYTES : 0);
+  case MEDIA_PUSH_URL:
+  case MEDIA_PUSH_POLICY: {
+    bool policy = p[0] == MEDIA_PUSH_POLICY;
+    if (policy && (n < 22 || p[20] > MEDIA_OVERFLOW_DROP_OLDEST || p[21] > 1 ||
+                   media_u32(p + 16) > MEDIA_TTL_MAX_MS)) return MEDIA_RANGE;
+    bool remote = policy ? p[21] != 0 : p[0] == MEDIA_PUSH_URL;
+    unsigned source_at = policy ? 22 : 16;
+    unsigned body = source_at + (remote ? MEDIA_STREAM_CONFIG_BYTES : 0);
+    uint32_t ttl = policy ? media_u32(p + 16) : 0;
+    unsigned overflow = policy ? p[20] : MEDIA_OVERFLOW_REJECT;
     if (n < body || n > MEDIA_PACKET_MAX)
       return MEDIA_RANGE;
     uint32_t fingerprint = media_crc32(p, n), image_id = media_u32(p + 5),
@@ -385,7 +400,7 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
     if (title > 64 || body + title > n || text > 512 || p[13] > 3 || !p[14] ||
         p[14] > 100 || duration > 3600000 || (!(p[13] & 2) && !duration))
       return MEDIA_RANGE;
-    const uint8_t *source = remote ? p + 16 : NULL;
+    const uint8_t *source = remote ? p + source_at : NULL;
     if (remote && (image_id || !(source[6] & 1) || !source[7] ||
                    !stream_config_valid(source, MEDIA_STREAM_CONFIG_BYTES)))
       return MEDIA_RANGE;
@@ -417,6 +432,7 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
        * UART sequence is an event; transport retransmissions are deduplicated
        * by the owner before reaching here. Shorter events never shorten it. */
       if (duration > q->remaining) q->remaining = duration;
+      if (policy && ttl > q->ttl_remaining) q->ttl_remaining = ttl;
       bool changed = strcmp(q->title, title_value) || strcmp(q->text, text_value);
       memcpy(q->title, title_value, sizeof(q->title));
       memcpy(q->text, text_value, sizeof(q->text));
@@ -439,8 +455,20 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
         q = &m->queue[i];
         break;
       }
-    if (!q)
-      return MEDIA_BUSY;
+    if (!q) {
+      if (overflow == MEDIA_OVERFLOW_DROP_NEWEST) {
+        media_notice dropped = {0};
+        dropped.id = id;dropped.signature = fingerprint;dropped.state = PUSH_DROPPED;
+        remember(m, &dropped);m->last_push_id = id;m->revision++;
+        return MEDIA_OK;
+      }
+      if (overflow == MEDIA_OVERFLOW_DROP_OLDEST) {
+        for (unsigned i = 0; i < MEDIA_QUEUE; i++)
+          if (m->queue[i].id != m->active) { q = &m->queue[i];break; }
+        if (q) finish(m, q, PUSH_EVICTED);
+      }
+      if (!q) return MEDIA_BUSY;
+    }
     /* Keep FIFO order by shifting into the first empty tail, including when
      * the current item was dismissed out of order. */
     unsigned slot = 0;
@@ -455,6 +483,7 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
     q->image = image_id;
     q->signature = fingerprint;
     q->remaining = duration;
+    q->ttl_remaining = ttl;
     q->wake = p[13] & 1;
     q->confirm = (p[13] >> 1) & 1;
     q->brightness = p[14];
@@ -490,6 +519,15 @@ void media_tick(screen_media *m, uint32_t now, bool asleep, bool suspended) {
   m->last_tick = now;
   bool was_suspended = m->suspended;
   m->suspended = suspended;
+  /* Hard lifetime runs while queued, hidden, suspended or awaiting confirm.
+   * Unsigned elapsed remains correct across the millisecond clock wrap. */
+  for (unsigned i = 0; i < MEDIA_QUEUE; i++) {
+    media_notice *item = &m->queue[i];
+    if (item->id && item->ttl_remaining) {
+      if (elapsed >= item->ttl_remaining) finish(m, item, PUSH_EXPIRED);
+      else item->ttl_remaining -= elapsed;
+    }
+  }
   media_notice *q = (media_notice *)media_current(m);
   if (q && m->presented && !suspended && !was_suspended && !q->confirm) {
     if (elapsed >= q->remaining)
@@ -530,7 +568,7 @@ size_t media_status(const screen_media *m, uint8_t *p, size_t cap) {
   p[28] = MEDIA_QUEUE;
   p[29] = MEDIA_IMAGE_SLOTS;
   p[30] = MEDIA_STACK;
-  p[31] = 3;
+  p[31] = 4;
   media_put32(p + 32, m->last_push_id);
   media_put32(p + 36, m->source_error);
   const media_notice *active = media_current(m);
@@ -551,6 +589,7 @@ size_t media_status(const screen_media *m, uint8_t *p, size_t cap) {
       media_put32(p + at + 4, q->image);
       p[at + 8] = q->state;
       p[at + 9] = q->source[0] != 0;
+      media_put32(p + at + 10, q->ttl_remaining);
     }
   }
   for (unsigned i = 0; i < MEDIA_HISTORY; i++, at += 5) {
