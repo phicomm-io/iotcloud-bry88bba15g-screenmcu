@@ -38,7 +38,8 @@ reads bounded trace batches and exports the collected report locally.
 刷新为同步拷贝时，flush 耗时包含实际拷贝。两次 flush 之间的间隔包含绘制和调度，
 不能直接当作 VSYNC 等待。多轮 monitor 需合计，并检查 `dropped` 后再分析区域。
 媒体版本使用双条带缓冲和 DMA2D；下方早期测量保留当时的同步 CPU 拷贝条件。
-扫描时钟及 LCD 连续扫描策略保持原配置。
+媒体版本的当前扫描与双帧交换实现见 [媒体绘制](MEDIA-PERFORMANCE.md)：约 30 Hz
+连续扫描，完整画面在帧开始时切换；下面的 40 Hz 数字保留早期固件的测量条件。
 
 ## Negotiated wire extension / 协商协议
 
@@ -59,7 +60,7 @@ The protocol snapshot checker also rejects duplicate extension opcode definition
 
 ## Driver comparison / 与原厂驱动对照
 
-当前为一份 480×854 RGB565 扫描缓冲，40 行 LVGL 绘制缓冲。每块直接拷到正在扫描
+2026-11-07 的社区驱动为一份 480×854 RGB565 扫描缓冲、40 行 LVGL 绘制缓冲。每块直接拷到正在扫描
 的缓冲，没有 VSYNC 等待；全屏通常需要 22 块。画面可能随绘制逐段出现。
 
 原厂 `SENSOR3_MCU SV.04.00.04.00` 的初始化函数 `0x3de84` 为 LVGL 配置两份完整
@@ -67,11 +68,12 @@ The protocol snapshot checker also rejects duplicate extension opcode definition
 写 LCD layer 0 地址 `0x4000204c`，设置 CR 的 VBPRELOAD（bit 15），等待该位自清，
 再通知 LVGL 完成。按手册，该位在帧开始装载影子寄存器。这是整帧交换路径。
 
-The current driver copies 40-row chunks into the active scan framebuffer and
+The 2026-11-07 community driver copied 40-row chunks into the active scan framebuffer and
 does not wait for VSYNC. The reviewed stock driver uses two full framebuffers,
 updates the LCD layer address, requests a frame-boundary shadow reload and waits
 for completion. Its unbounded busy loop should not be copied into recovery-aware
-community firmware.
+community firmware. The current media driver uses two full framebuffers with
+a bounded frame-start reload and synchronizes partial updates after the latch.
 
 ## Device measurements / 真机测量（2026-11-07）
 
