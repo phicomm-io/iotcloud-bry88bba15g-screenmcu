@@ -214,7 +214,6 @@ unsigned media_select(screen_media *m, unsigned index) {
   }
   m->active = q->id;
   m->parked = false;
-  m->presented = false;
   m->revision++;
   return MEDIA_OK;
 }
@@ -262,10 +261,6 @@ bool media_touch(screen_media *m) {
       return true;
     }
   return false;
-}
-bool media_wake(const screen_media *m) {
-  const media_notice *q = media_current(m);
-  return q && !m->suspended && q->wake;
 }
 void media_present(screen_media *m) {
   media_notice *q = (media_notice *)media_current(m);
@@ -478,7 +473,6 @@ unsigned media_command(screen_media *m, const uint8_t *p, size_t n) {
     for (unsigned i = slot; i < MEDIA_QUEUE; i++)
       memset(&m->queue[i], 0, sizeof(m->queue[i]));
     q = &m->queue[slot];
-    memset(q, 0, sizeof(*q));
     q->id = id;
     q->image = image_id;
     q->signature = fingerprint;
@@ -541,7 +535,6 @@ void media_tick(screen_media *m, uint32_t now, bool asleep, bool suspended) {
         q = &m->queue[i];
         if (asleep && !q->wake)
           break;
-        m->was_asleep = asleep;
         media_select(m, 1);
         break;
       }

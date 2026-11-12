@@ -24,7 +24,7 @@ typedef struct {
   uint32_t active, revision, decoded, decode_errors, pixel_crc, now, last_tick;
   uint32_t last_push_id, source_error;
   uint16_t width, height;
-  bool presented, suspended, was_asleep, parked, source_ready;
+  bool presented, suspended, parked, source_ready;
   bool tap_pending, tap_page;
   uint32_t tap_at, tap_target;
   uint16_t pixels[MEDIA_WIDTH_MAX * 864u] __attribute__((aligned(64)));
@@ -48,5 +48,4 @@ unsigned media_button(screen_media *, uint32_t now, bool down, bool released,
                       bool page_tap, bool blocked);
 void media_present(screen_media *);
 void media_source_failed(screen_media *, unsigned error);
-bool media_wake(const screen_media *);
 size_t media_status(const screen_media *, uint8_t *, size_t);
