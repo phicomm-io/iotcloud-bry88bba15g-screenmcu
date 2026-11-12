@@ -18,9 +18,19 @@ static bool emit(screen_stream *s, unsigned op, const void *p, size_t n) {
 }
 static bool want(void *ctx) {
   screen_stream *s = ctx;
-  bool yes = !s->ready && (!s->frame_at ||
-                           (uint32_t)(s->now - s->frame_at) >= 1000u / s->fps);
-  if (!yes)
+  uint32_t period = 1000u / s->fps;
+  unsigned tolerance = period / 10u;
+  if (tolerance > 20) tolerance = 20;
+  bool yes = !s->ready && (!s->frame_due ||
+                 (int32_t)(s->now - s->frame_due) >= -(int32_t)tolerance);
+  if (yes) {
+    // Pace frame starts. Transfer/decode time must not halve the source rate.
+    // Follow a deadline so small source jitter does not drop alternate frames.
+    if (!s->frame_due || (int32_t)(s->now - s->frame_due) > (int32_t)period)
+      s->frame_due = s->now + period;
+    else
+      s->frame_due += period;
+  } else
     s->dropped++;
   return yes;
 }
@@ -45,6 +55,7 @@ static void close_stream(screen_stream *s) {
     emit(s, MEDIA_NET_CLOSE, NULL, 0);
   s->request_size = 0;
   s->ready = false;
+  s->frame_due = 0;
 }
 static void failure(screen_stream *s, unsigned error) {
   close_stream(s);
@@ -153,7 +164,8 @@ unsigned stream_config(screen_stream *s, const uint8_t *p, size_t n) {
       fps > 10)
     return MEDIA_RANGE;
   stream_url candidate = {0};
-  if (!parse_url(&candidate, (const char *)p + 7, w, h, fps))
+  bool clear = !p[7] && !(p[6] & 1);
+  if (!clear && !parse_url(&candidate, (const char *)p + 7, w, h, fps))
     return MEDIA_RANGE;
   for (unsigned i = 391; i < 519; i++)
     if (p[i] && (p[i] < 32 || p[i] == 127))
@@ -162,6 +174,10 @@ unsigned stream_config(screen_stream *s, const uint8_t *p, size_t n) {
   memcpy(s->url, p + 7, 384);
   memcpy(s->username, p + 391, 64);
   memcpy(s->password, p + 455, 64);
+  if (clear) {
+    memset(s->username, 0, sizeof(s->username));
+    memset(s->password, 0, sizeof(s->password));
+  }
   s->target_width = w;
   s->target_height = h;
   s->fps = fps;

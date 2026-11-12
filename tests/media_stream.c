@@ -43,4 +43,21 @@ int main(void){
  stream_poll(&s,1004,false,true);assert(s.state==STREAM_PAUSED&&!s.request_size);
  stream_poll(&s,1005,true,true);assert(s.state==STREAM_CONNECTING);stream_poll(&s,17006,true,true);assert(s.state==STREAM_BACKOFF&&s.error==822);
  stream_poll(&s,17007,true,false);assert(s.state==STREAM_PAUSED);uint8_t status[40];assert(stream_status(&s,status,40)==40&&media_u32(status+8)==1);
+ // Clearing a disabled source closes it and removes credentials. An enabled
+ // empty URL is rejected without changing the current source.
+ memset(cfg+7,0,384);cfg[6]=3;
+ assert(stream_config(&s,cfg,sizeof(cfg))==MEDIA_RANGE&&!strcmp(s.host,"camera.test"));
+ cfg[6]=2;assert(stream_config(&s,cfg,sizeof(cfg))==MEDIA_OK);
+ assert(s.state==STREAM_OFF&&!s.url[0]&&!s.host[0]&&!s.username[0]&&!s.password[0]);
+ unsigned before=operations;stream_poll(&s,18000,true,true);assert(operations==before);
+ // Frame pacing follows capture starts, independent of transfer/decode delay,
+ // tolerates small source jitter, and never catches up a backlog in a burst.
+ stream_init(&s);s.now=1000;assert(s.parser.want(s.parser.context));
+ s.ready=true;s.now=1100;assert(!s.parser.want(s.parser.context));
+ s.ready=false;s.now=1400;assert(!s.parser.want(s.parser.context));
+ s.now=1985;assert(s.parser.want(s.parser.context));
+ s.now=2010;assert(!s.parser.want(s.parser.context));
+ s.now=3010;assert(s.parser.want(s.parser.context));
+ s.now=10000;assert(s.parser.want(s.parser.context));
+ s.now=10001;assert(!s.parser.want(s.parser.context));
 }

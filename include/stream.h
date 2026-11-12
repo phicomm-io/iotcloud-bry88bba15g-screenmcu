@@ -16,6 +16,7 @@ typedef struct {
   bool enabled, verify_tls;
   unsigned state, error, failures, auth_attempt;
   uint32_t connection, rx_sequence, now, at, retry_at, frame_at, frame_bytes;
+  uint32_t frame_due;
   uint32_t frames, dropped, bytes, pixel_crc, revision, period_start,
       period_frames, actual_millifps;
   bool ready, tls, digest;
